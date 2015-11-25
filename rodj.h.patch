@@ -1,0 +1,9 @@
+56a57
+> 	virtual doublereal dCalcEpsilon(void);
+282,283c283,285
+< 	const Vec3 f1;
+< 	const Vec3 f2;
+---
+> 	Vec3 f1;
+> 	Vec3 f2;
+> 	virtual doublereal dCalcEpsilon(void);
