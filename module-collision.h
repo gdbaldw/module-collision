@@ -42,10 +42,12 @@ private:
     typedef RodWithOffset super;
     const BasicScalarFunction* pSF;
     const doublereal penetration;
+    integer iFirstDofIndex;
+    integer iR;
+    integer iC;
     int iNumRowsNode;
     int iNumColsNode;
     int iNumDofs;
-    int iFirstReactionIndex;
     doublereal dCalcEpsilon(void);
     Vec3 Arm2;
     State state;
@@ -57,9 +59,6 @@ private:
     std::vector<Vec3> f1_vector;
     std::vector<Vec3> f2_vector;
     std::vector<Vec3> Ft_vector;
-    std::vector<Mat3x3> Rv_vector;
-    void SaveState(void);
-    void PutRv(Mat3x3 Rv);
 public:
     Impact(const DofOwner* pDO, 
         const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSFTmp, const doublereal penetrationTmp,
@@ -68,45 +67,39 @@ public:
     void WorkSpaceDim(integer* piNumRows, integer* piNumCols) const;
     void PushBackContact(const btVector3& point1, const btVector3& point2);
     void ClearContacts(void);
+    void ClearAndPushStates(void);
     int ContactsSize(void);
     bool SetOffsets(const int i);
     std::ostream& OutputAppend(std::ostream& out) const;
-    void AccumulatorReset(void);
-    void SetFirstReactionIndex(const int i);
-    Mat3x3 GetRv(const int i);
-    bool NoSlip(const int i);
+    void SetIndices(integer* iIndex, integer* iRow, integer* iCol);
     VariableSubMatrixHandler&
     AssJac(VariableSubMatrixHandler& WorkMat,
         doublereal dCoef,
         const VectorHandler& XCurr, 
         const VectorHandler& XPrimeCurr);
+    void AssMat(FullSubMatrixHandler& WM, doublereal dCoef);
 
     SubVectorHandler& 
     AssRes(SubVectorHandler& WorkVec,
         doublereal dCoef,
         const VectorHandler& XCurr, 
         const VectorHandler& XPrimeCurr);
-
+    void AssVec(SubVectorHandler& WorkVec);
 };
 
 class CollisionWorld
 : virtual public Elem, public UserDefinedElem {
 private:
-    int N;
-    int iNumRowsNode;
-    int iNumColsNode;
-    int iNumDofsImpact;
+    integer iNumDofs;
+    integer iNumRows;
+    integer iNumCols;
     btDefaultCollisionConfiguration* configuration;
     btCollisionDispatcher* dispatcher;
     btBroadphaseInterface* broadphase;
     btCollisionWorld* world;
     typedef std::pair<btCollisionObject*, btCollisionObject*> ObjectPair;
-    typedef std::pair<const StructNode*, btCollisionObject*> NodeObjectPair;
     std::map<ObjectPair, Impact*> objectpair_impact_map;
-    std::map<ObjectPair, unsigned int> objectpair_index_map;
-    std::vector<const StructNode*> nodes_vector;
-    std::map<btCollisionObject*, unsigned int> object_index_map;
-    std::set<ObjectPair> collisions;
+    std::set<const Node*> nodes;
 public:
     CollisionWorld(unsigned uLabel, const DofOwner *pDO,
         DataManager* pDM, MBDynParser& HP);
@@ -123,6 +116,7 @@ public:
     void GetConnectedNodes(std::vector<const Node *>& connectedNodes) const;
     std::ostream& Restart(std::ostream& out) const;
     unsigned int iGetInitialNumDof(void) const;
+    void ClearAndPushContacts(void);
 
     void
     AfterPredict(VectorHandler& X, VectorHandler& XP);
