@@ -104,7 +104,7 @@ Collision::PushBackContact(const btVector3& point1, const btVector3& point2)
 }
 
 void
-Collision::ResetStates(void)
+Collision::InitializeStates(void)
 {
     state_vector.clear();
     Ft_vector.clear();
@@ -701,12 +701,12 @@ CollisionWorld::Output(OutputHandler& OH) const
 }
 
 void
-CollisionWorld::ResetStates(void)
+CollisionWorld::InitializeStates(void)
 {
-    //printf("Entering CollisionWorld::ResetStates()\n");
+    //printf("Entering CollisionWorld::InitializeStates()\n");
     for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
-        it->second->ResetStates();
+        it->second->InitializeStates();
     }
 }
 
@@ -753,7 +753,7 @@ CollisionWorld::SetValue(DataManager *pDM,
     SimulationEntity::Hints *ph)
 {
     //printf("Entering CollisionWorld::SetValue()\n");
-    ResetStates();
+    InitializeStates();
 }
 
 void
@@ -768,22 +768,24 @@ CollisionWorld::AfterPredict(VectorHandler& X, VectorHandler& XP)
     }
     for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
-        it->second->ResetStates();
+        it->second->InitializeStates();
     }
     */
     //ClearAndPushContacts();
+    /*
     const integer iFirstReactionIndex = iGetFirstIndex();
     for (int iCnt = 1; iCnt <= iNumDofs; iCnt++) {
         X.PutCoef(iFirstReactionIndex + iCnt, 0.0);
         XP.PutCoef(iFirstReactionIndex + iCnt, 0.0);
     }
+    */
 }
 
 void
 CollisionWorld::AfterConvergence(const VectorHandler& X, const VectorHandler& XP)
 {
     //printf("Entering CollisionWorld::AfterConvergence()\n");
-    ResetStates();
+    InitializeStates();
 }
 
 SubVectorHandler& 
