@@ -35,9 +35,9 @@
 #define MODULE_COLLISION_H
 
 typedef std::pair<Vec3, Vec3> PointPair;
-enum State {UNDEFINED, MISS, NO_RESISTANCE, SLIP, NO_SLIP};
+enum State {UNDEFINED, SLIP, NO_SLIP};
 
-class Impact : public RodWithOffset {
+class Collision : public RodWithOffset {
 private:
     typedef RodWithOffset super;
     const BasicScalarFunction* pSF;
@@ -50,24 +50,22 @@ private:
     int iNumDofs;
     doublereal dCalcEpsilon(void);
     Vec3 Arm2;
-    State state;
-    Vec3 Ft_old;
     Vec3 F_reaction;
     int index;
-    std::vector<State> state_vector;
     std::vector<Vec3> Arm2_vector;
     std::vector<Vec3> f1_vector;
     std::vector<Vec3> f2_vector;
+    std::vector<State> state_vector;
     std::vector<Vec3> Ft_vector;
 public:
-    Impact(const DofOwner* pDO, 
+    Collision(const DofOwner* pDO, 
         const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSFTmp, const doublereal penetrationTmp,
         const StructNode* pN1, const StructNode* pN2);
     unsigned int iGetNumDof(void) const;
     void WorkSpaceDim(integer* piNumRows, integer* piNumCols) const;
     void PushBackContact(const btVector3& point1, const btVector3& point2);
     void ClearContacts(void);
-    void ClearAndPushStates(void);
+    void ResetStates(void);
     int ContactsSize(void);
     bool SetOffsets(const int i);
     std::ostream& OutputAppend(std::ostream& out) const;
@@ -77,14 +75,20 @@ public:
         doublereal dCoef,
         const VectorHandler& XCurr, 
         const VectorHandler& XPrimeCurr);
-    void AssMat(FullSubMatrixHandler& WM, doublereal dCoef);
+    void AssMat(FullSubMatrixHandler& WM,
+        doublereal dCoef,
+        const VectorHandler& XCurr,
+        const int i);
 
     SubVectorHandler& 
     AssRes(SubVectorHandler& WorkVec,
         doublereal dCoef,
         const VectorHandler& XCurr, 
         const VectorHandler& XPrimeCurr);
-    void AssVec(SubVectorHandler& WorkVec);
+    void AssVec(SubVectorHandler& WorkVec,
+        doublereal dCoef,
+        const VectorHandler& XCurr,
+        const int i);
 };
 
 class CollisionWorld
@@ -98,7 +102,7 @@ private:
     btBroadphaseInterface* broadphase;
     btCollisionWorld* world;
     typedef std::pair<btCollisionObject*, btCollisionObject*> ObjectPair;
-    std::map<ObjectPair, Impact*> objectpair_impact_map;
+    std::map<ObjectPair, Collision*> objectpair_collision_map;
     std::set<const Node*> nodes;
 public:
     CollisionWorld(unsigned uLabel, const DofOwner *pDO,
@@ -116,6 +120,7 @@ public:
     void GetConnectedNodes(std::vector<const Node *>& connectedNodes) const;
     std::ostream& Restart(std::ostream& out) const;
     unsigned int iGetInitialNumDof(void) const;
+    void ResetStates(void);
     void ClearAndPushContacts(void);
 
     void
