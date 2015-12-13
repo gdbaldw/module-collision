@@ -70,12 +70,15 @@ public:
     bool SetOffsets(const int i);
     std::ostream& OutputAppend(std::ostream& out, int i) const;
     void SetIndices(integer* iIndex, integer* iRow, integer* iCol);
+
     VariableSubMatrixHandler&
     AssJac(VariableSubMatrixHandler& WorkMat,
         doublereal dCoef,
         const VectorHandler& XCurr, 
         const VectorHandler& XPrimeCurr);
-    void AssMat(FullSubMatrixHandler& WM,
+
+    void
+    AssMat(FullSubMatrixHandler& WM,
         doublereal dCoef,
         const VectorHandler& XCurr,
         const int i);
@@ -85,7 +88,9 @@ public:
         doublereal dCoef,
         const VectorHandler& XCurr, 
         const VectorHandler& XPrimeCurr);
-    void AssVec(SubVectorHandler& WorkVec,
+    
+    void
+    AssVec(SubVectorHandler& WorkVec,
         doublereal dCoef,
         const VectorHandler& XCurr,
         const int i);
@@ -168,34 +173,37 @@ public:
     CollisionObject(unsigned uLabel, const DofOwner *pDO,
         DataManager* pDM, MBDynParser& HP);
     ~CollisionObject(void);
-
     void Output(OutputHandler& OH) const;
     void WorkSpaceDim(integer* piNumRows, integer* piNumCols) const;
-    VariableSubMatrixHandler& 
-    AssJac(VariableSubMatrixHandler& WorkMat,
-        doublereal dCoef, 
-        const VectorHandler& XCurr,
-        const VectorHandler& XPrimeCurr);
-    SubVectorHandler& 
-    AssRes(SubVectorHandler& WorkVec,
-        doublereal dCoef,
-        const VectorHandler& XCurr, 
-        const VectorHandler& XPrimeCurr);
     unsigned int iGetNumPrivData(void) const;
     unsigned int iGetPrivDataIdx(const char *s) const;
     doublereal dGetPrivData(unsigned int i) const;
     int iGetNumConnectedNodes(void) const;
     void GetConnectedNodes(std::vector<const Node *>& connectedNodes) const;
-    void SetValue(DataManager *pDM, VectorHandler& X, VectorHandler& XP,
-        SimulationEntity::Hints *ph);
     std::ostream& Restart(std::ostream& out) const;
     unsigned int iGetInitialNumDof(void) const;
-    void 
-    InitialWorkSpaceDim(integer* piNumRows, integer* piNumCols) const;
-       VariableSubMatrixHandler&
-    InitialAssJac(VariableSubMatrixHandler& WorkMat, 
-              const VectorHandler& XCurr);
-       SubVectorHandler& 
+    void InitialWorkSpaceDim(integer* piNumRows, integer* piNumCols) const;
+
+    VariableSubMatrixHandler& 
+    AssJac(VariableSubMatrixHandler& WorkMat,
+        doublereal dCoef, 
+        const VectorHandler& XCurr,
+        const VectorHandler& XPrimeCurr);
+
+    SubVectorHandler& 
+    AssRes(SubVectorHandler& WorkVec,
+        doublereal dCoef,
+        const VectorHandler& XCurr, 
+        const VectorHandler& XPrimeCurr);
+
+    void
+    SetValue(DataManager *pDM, VectorHandler& X, VectorHandler& XP,
+        SimulationEntity::Hints *ph);
+
+    VariableSubMatrixHandler&
+    InitialAssJac(VariableSubMatrixHandler& WorkMat, const VectorHandler& XCurr);
+
+    SubVectorHandler& 
     InitialAssRes(SubVectorHandler& WorkVec, const VectorHandler& XCurr);
 };
 

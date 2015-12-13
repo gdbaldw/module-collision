@@ -40,7 +40,6 @@
 #include "userelem.h"
 #include "btBulletDynamicsCommon.h"
 #include <set>
-#include <queue>
 #include "rodj.h"
 #include <limits>
 #include "module-collision.h"
@@ -142,41 +141,41 @@ Collision::SetOffsets(const int i)
     Vec3 p2(pNode2->GetXCurr() + R2 * f2);
     Vec3 p1(pNode1->GetXCurr() + R1 * f1);
     v = p2 - p1;
-	dElle = v.Norm();
-	dEpsilon = dCalcEpsilon();
-	Vec3 vPrime(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(R2 * f2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(R1 * f1));
-	dEpsilonPrime  = (v.Dot(vPrime)) / v.Norm();
+    dElle = v.Norm();
+    dEpsilon = dCalcEpsilon();
+    Vec3 vPrime(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(R2 * f2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(R1 * f1));
+    dEpsilonPrime  = (v.Dot(vPrime)) / v.Norm();
     return v.Dot(pNode2->GetXCurr() - pNode1->GetXCurr()) < 0.0
         && std::numeric_limits<doublereal>::epsilon() < v.Norm(); // collision?
 }
 
 VariableSubMatrixHandler&
 Collision::AssJac(VariableSubMatrixHandler& WorkMat,
-	doublereal dCoef,
-	const VectorHandler& XCurr,
-	const VectorHandler& XPrimeCurr)
+    doublereal dCoef,
+    const VectorHandler& XCurr,
+    const VectorHandler& XPrimeCurr)
 {
     //printf("Entering Collision::AssJac()\n");
-	DEBUGCOUT("Entering Collision::AssJac()" << std::endl);
-	FullSubMatrixHandler& WM = WorkMat.SetFull();
-	const integer iNode1FirstPosIndex = pNode1->iGetFirstPositionIndex();
-	const integer iNode1FirstMomIndex = pNode1->iGetFirstMomentumIndex();
-	const integer iNode2FirstPosIndex = pNode2->iGetFirstPositionIndex();
-	const integer iNode2FirstMomIndex = pNode2->iGetFirstMomentumIndex();
-	for (int iCnt = 1; iCnt <= iNumRowsNode; iCnt++) {
-		WM.PutRowIndex(iR + iCnt, iNode1FirstMomIndex + iCnt);
-		WM.PutRowIndex(iR + iNumRowsNode + iCnt, iNode2FirstMomIndex + iCnt);
-	}
-	for (int iCnt = 1; iCnt <= iNumColsNode; iCnt++) {
-		WM.PutColIndex(iC + iCnt, iNode1FirstPosIndex + iCnt);
-		WM.PutColIndex(iC + iNumColsNode + iCnt, iNode2FirstPosIndex + iCnt);
-	}
+    DEBUGCOUT("Entering Collision::AssJac()" << std::endl);
+    FullSubMatrixHandler& WM = WorkMat.SetFull();
+    const integer iNode1FirstPosIndex = pNode1->iGetFirstPositionIndex();
+    const integer iNode1FirstMomIndex = pNode1->iGetFirstMomentumIndex();
+    const integer iNode2FirstPosIndex = pNode2->iGetFirstPositionIndex();
+    const integer iNode2FirstMomIndex = pNode2->iGetFirstMomentumIndex();
+    for (int iCnt = 1; iCnt <= iNumRowsNode; iCnt++) {
+        WM.PutRowIndex(iR + iCnt, iNode1FirstMomIndex + iCnt);
+        WM.PutRowIndex(iR + iNumRowsNode + iCnt, iNode2FirstMomIndex + iCnt);
+    }
+    for (int iCnt = 1; iCnt <= iNumColsNode; iCnt++) {
+        WM.PutColIndex(iC + iCnt, iNode1FirstPosIndex + iCnt);
+        WM.PutColIndex(iC + iNumColsNode + iCnt, iNode2FirstPosIndex + iCnt);
+    }
     for (int iCnt = 1; iCnt <= iNumDofs; iCnt++) {
         WM.PutRowIndex(iR + (2 * iNumRowsNode) + iCnt, iFirstDofIndex + iCnt);
         WM.PutColIndex(iC + (2 * iNumColsNode) + iCnt, iFirstDofIndex + iCnt);
     }
-	for (int i = 0; i < ContactsSize(); i++) {
-	    if (SetOffsets(i)) {
+    for (int i = 0; i < ContactsSize(); i++) {
+        if (SetOffsets(i)) {
             AssMat(WM, dCoef, XCurr, i);
         } else {
             //WM.PutCoef(iR + (2 * iNumRowsNode) + i + 1, iC + (2 * iNumColsNode) + i + 1, 1.0);
@@ -198,81 +197,81 @@ Collision::AssMat(FullSubMatrixHandler& WM,
     const StructNode* pStructNode2(dynamic_cast<const StructNode *>(pNode2));
 
     /* Impact */
-	const Vec3 f1Tmp((pStructNode1->GetRRef()) * f1);
-	const Vec3 f2Tmp((pStructNode2->GetRRef()) * f2);
-	const Vec3& Omega1(pStructNode1->GetWRef());
-	const Vec3& Omega2(pStructNode2->GetWRef());
-	Vec3 vPrime(pNode2->GetVCurr() + Omega2.Cross(f2Tmp) - pNode1->GetVCurr() - Omega1.Cross(f1Tmp));
-	doublereal dF = GetF();
-	doublereal dFDE = GetFDE();
-	doublereal dFDEPrime = GetFDEPrime();
+    const Vec3 f1Tmp((pStructNode1->GetRRef()) * f1);
+    const Vec3 f2Tmp((pStructNode2->GetRRef()) * f2);
+    const Vec3& Omega1(pStructNode1->GetWRef());
+    const Vec3& Omega2(pStructNode2->GetWRef());
+    Vec3 vPrime(pNode2->GetVCurr() + Omega2.Cross(f2Tmp) - pNode1->GetVCurr() - Omega1.Cross(f1Tmp));
+    doublereal dF = GetF();
+    doublereal dFDE = GetFDE();
+    doublereal dFDEPrime = GetFDEPrime();
 
-	/* Vettore forza */
-	Vec3 F = v*(dF/dElle);
+    /* Vettore forza */
+    Vec3 F = v*(dF/dElle);
 
-	Mat3x3 K(v.Tens(v * (dCoef * (dFDE / dL0 - (dEpsilonPrime * dFDEPrime + dF) / dElle)/(dElle * dElle))));
-	if (dFDEPrime != 0.) {
-		K += v.Tens(vPrime * (dCoef * dFDEPrime / (dElle * dElle * dL0)));
-	}
-	doublereal d = dCoef * dF / dElle;
-	for (unsigned iCnt = 1; iCnt <= 3; iCnt++) {
-		K(iCnt, iCnt) += d;
-	}
+    Mat3x3 K(v.Tens(v * (dCoef * (dFDE / dL0 - (dEpsilonPrime * dFDEPrime + dF) / dElle)/(dElle * dElle))));
+    if (dFDEPrime != 0.) {
+        K += v.Tens(vPrime * (dCoef * dFDEPrime / (dElle * dElle * dL0)));
+    }
+    doublereal d = dCoef * dF / dElle;
+    for (unsigned iCnt = 1; iCnt <= 3; iCnt++) {
+        K(iCnt, iCnt) += d;
+    }
 
-	Mat3x3 KPrime;
-	if (dFDEPrime != 0.) {
-		KPrime = v.Tens(v * (dFDEPrime / (dL0 * dElle * dElle)));
-	}
+    Mat3x3 KPrime;
+    if (dFDEPrime != 0.) {
+        KPrime = v.Tens(v * (dFDEPrime / (dL0 * dElle * dElle)));
+    }
 
-	/* Termini di forza diagonali */
-	Mat3x3 Tmp1(K);
-	if (dFDEPrime != 0.) {
-		Tmp1 += KPrime;
-	}
-	WM.Add(iR + 1, iC + 1, Tmp1);
-	WM.Add(iR + 6 + 1, iC + 6 + 1, Tmp1);
+    /* Termini di forza diagonali */
+    Mat3x3 Tmp1(K);
+    if (dFDEPrime != 0.) {
+        Tmp1 += KPrime;
+    }
+    WM.Add(iR + 1, iC + 1, Tmp1);
+    WM.Add(iR + 6 + 1, iC + 6 + 1, Tmp1);
 
-	/* Termini di coppia, nodo 1 */
-	Mat3x3 Tmp2 = f1Tmp.Cross(Tmp1);
-	WM.Add(iR + 3 + 1, iC + 1, Tmp2);
-	WM.Sub(iR + 3 + 1, iC + 6 + 1, Tmp2);
+    /* Termini di coppia, nodo 1 */
+    Mat3x3 Tmp2 = f1Tmp.Cross(Tmp1);
+    WM.Add(iR + 3 + 1, iC + 1, Tmp2);
+    WM.Sub(iR + 3 + 1, iC + 6 + 1, Tmp2);
 
-	/* Termini di coppia, nodo 2 */
-	Tmp2 = f2Tmp.Cross(Tmp1);
-	WM.Add(iR + 9 + 1, iC + 6 + 1, Tmp2);
-	WM.Sub(iR + 9 + 1, iC + 1, Tmp2);
+    /* Termini di coppia, nodo 2 */
+    Tmp2 = f2Tmp.Cross(Tmp1);
+    WM.Add(iR + 9 + 1, iC + 6 + 1, Tmp2);
+    WM.Sub(iR + 9 + 1, iC + 1, Tmp2);
 
-	/* termini di forza extradiagonali */
-	WM.Sub(iR + 1, iC + 6 + 1, Tmp1);
-	WM.Sub(iR + 6 + 1, iC + 1, Tmp1);
+    /* termini di forza extradiagonali */
+    WM.Sub(iR + 1, iC + 6 + 1, Tmp1);
+    WM.Sub(iR + 6 + 1, iC + 1, Tmp1);
 
-	/* Termini di rotazione, Delta g1 */
-	Mat3x3 Tmp3 = Tmp1 * Mat3x3(MatCross, -f1Tmp);
-	if (dFDEPrime != 0.) {
-		Tmp3 += KPrime * Mat3x3(MatCross, f1Tmp.Cross(Omega1 * dCoef));
-	}
-	WM.Add(iR + 1, iC + 3 + 1, Tmp3);
-	WM.Sub(iR + 6 + 1, iC + 3 + 1, Tmp3);
+    /* Termini di rotazione, Delta g1 */
+    Mat3x3 Tmp3 = Tmp1 * Mat3x3(MatCross, -f1Tmp);
+    if (dFDEPrime != 0.) {
+        Tmp3 += KPrime * Mat3x3(MatCross, f1Tmp.Cross(Omega1 * dCoef));
+    }
+    WM.Add(iR + 1, iC + 3 + 1, Tmp3);
+    WM.Sub(iR + 6 + 1, iC + 3 + 1, Tmp3);
 
-	/* Termini di coppia, Delta g1 */
-	Tmp2 = f1Tmp.Cross(Tmp3) + Mat3x3(MatCrossCross, F, f1Tmp * dCoef);
-	WM.Add(iR + 3 + 1, iC + 3 + 1, Tmp2);
-	Tmp2 = f2Tmp.Cross(Tmp3);
-	WM.Sub(iR + 9 + 1, iC + 3 + 1, Tmp2);
+    /* Termini di coppia, Delta g1 */
+    Tmp2 = f1Tmp.Cross(Tmp3) + Mat3x3(MatCrossCross, F, f1Tmp * dCoef);
+    WM.Add(iR + 3 + 1, iC + 3 + 1, Tmp2);
+    Tmp2 = f2Tmp.Cross(Tmp3);
+    WM.Sub(iR + 9 + 1, iC + 3 + 1, Tmp2);
 
-	/* Termini di rotazione, Delta g2 */
-	Tmp3 = Tmp1*Mat3x3(MatCross, -f2Tmp);
-	if (dFDEPrime != 0.) {
-		Tmp3 += KPrime * Mat3x3(MatCross, f2Tmp.Cross(Omega2 * dCoef));
-	}
-	WM.Add(iR + 6 + 1, iC + 9 + 1, Tmp3);
-	WM.Sub(iR + 1, iC + 9 + 1, Tmp3);
+    /* Termini di rotazione, Delta g2 */
+    Tmp3 = Tmp1*Mat3x3(MatCross, -f2Tmp);
+    if (dFDEPrime != 0.) {
+        Tmp3 += KPrime * Mat3x3(MatCross, f2Tmp.Cross(Omega2 * dCoef));
+    }
+    WM.Add(iR + 6 + 1, iC + 9 + 1, Tmp3);
+    WM.Sub(iR + 1, iC + 9 + 1, Tmp3);
 
-	/* Termini di coppia, Delta g2 */
-	Tmp2 = f2Tmp.Cross(Tmp3) + Mat3x3(MatCrossCross, F, f2Tmp * dCoef);
-	WM.Add(iR + 9 + 1, iC + 9 + 1, Tmp2);
-	Tmp2 = f1Tmp.Cross(Tmp3);
-	WM.Sub(iR + 3 + 1, iC + 9 + 1, Tmp2);
+    /* Termini di coppia, Delta g2 */
+    Tmp2 = f2Tmp.Cross(Tmp3) + Mat3x3(MatCrossCross, F, f2Tmp * dCoef);
+    WM.Add(iR + 9 + 1, iC + 9 + 1, Tmp2);
+    Tmp2 = f1Tmp.Cross(Tmp3);
+    WM.Sub(iR + 3 + 1, iC + 9 + 1, Tmp2);
 
     /* Resistance */
     //WM.PutCoef(iR + (2 * iNumRowsNode) + i + 1, iC + (2 * iNumColsNode) + i + 1, 1.0);
@@ -300,14 +299,14 @@ Collision::AssRes(SubVectorHandler& WorkVec,
     for (int iCnt = 1; iCnt <= iNumDofs; iCnt++) {
         WorkVec.PutRowIndex(iR + (2 * iNumRowsNode) + iCnt, iFirstDofIndex + iCnt);
     }
-	bool ChangeJac(false);
-	for (int i = 0; i < ContactsSize(); i++) {
-	    if (SetOffsets(i)) {
-        	try {
+    bool ChangeJac(false);
+    for (int i = 0; i < ContactsSize(); i++) {
+        if (SetOffsets(i)) {
+            try {
                 AssVec(WorkVec, dCoef, XCurr, i);
-	        } catch (Elem::ChangedEquationStructure) {
-		        ChangeJac = true;
-	        }
+            } catch (Elem::ChangedEquationStructure) {
+                ChangeJac = true;
+            }
         } else {
             //WorkVec.PutCoef(iR + (2 * iNumRowsNode) + i + 1, -XCurr(iFirstDofIndex + i + 1));
         }
@@ -315,9 +314,9 @@ Collision::AssRes(SubVectorHandler& WorkVec,
     for (int i = 0 /*ContactsSize()*/; i < iNumDofs; i++) {
         WorkVec.PutCoef(iR + (2 * iNumRowsNode) + i + 1, -XCurr(iFirstDofIndex + i + 1));
     }
-	if (ChangeJac) {
-		throw Elem::ChangedEquationStructure(MBDYN_EXCEPT_ARGS);
-	}
+    if (ChangeJac) {
+        throw Elem::ChangedEquationStructure(MBDYN_EXCEPT_ARGS);
+    }
     return WorkVec;
 }
 
@@ -327,34 +326,34 @@ Collision::AssVec(SubVectorHandler& WorkVec,
     const VectorHandler& XCurr,
     const int i)
 {
-	DEBUGCOUT("RodWithOffset::AssVec()" << std::endl);
+    DEBUGCOUT("RodWithOffset::AssVec()" << std::endl);
     const StructNode* pStructNode1(dynamic_cast<const StructNode *>(pNode1));
     const StructNode* pStructNode2(dynamic_cast<const StructNode *>(pNode2));
     Mat3x3 R1(pStructNode1->GetRCurr());
     Mat3x3 R2(pStructNode2->GetRCurr());
-	bool ChangeJac(false);
-	
-	/* Impact */
-	try {
-		ConstitutiveLaw1DOwner::Update(dEpsilon, dEpsilonPrime);
+    bool ChangeJac(false);
+    
+    /* Impact */
+    try {
+        ConstitutiveLaw1DOwner::Update(dEpsilon, dEpsilonPrime);
 
-	} catch (Elem::ChangedEquationStructure) {
-		ChangeJac = true;
-	}
+    } catch (Elem::ChangedEquationStructure) {
+        ChangeJac = true;
+    }
     Fn_Norm_vector[i] = GetF();
-	Vec3 Fn(v * (Fn_Norm_vector[i] / v.Norm()));
-	WorkVec.Add(iR + 1, Fn);
-	WorkVec.Add(iR + 3 + 1, (R1 * f1).Cross(Fn));
-	WorkVec.Sub(iR + 6 + 1, Fn);
-	WorkVec.Sub(iR + 9 + 1, (R2 * f2).Cross(Fn));
+    Vec3 Fn(v * (Fn_Norm_vector[i] / v.Norm()));
+    WorkVec.Add(iR + 1, Fn);
+    WorkVec.Add(iR + 3 + 1, (R1 * f1).Cross(Fn));
+    WorkVec.Sub(iR + 6 + 1, Fn);
+    WorkVec.Sub(iR + 9 + 1, (R2 * f2).Cross(Fn));
 
     /* Resistance */
     //WorkVec.PutCoef(iR + (2 * iNumRowsNode) + i + 1, -XCurr(iFirstDofIndex + i + 1));
     if (pSF != NULL) {
         Vec3 unit_normal(pNode2->GetXCurr() + R2 * f2 - pNode1->GetXCurr() + R1 * f1);
         unit_normal /= unit_normal.Norm();
-	    Vec3 R_Arm2(R2*Arm2);
-	    Vec3 R_Arm1_calc(pNode2->GetXCurr() + R_Arm2 - pNode1->GetXCurr());
+        Vec3 R_Arm2(R2*Arm2);
+        Vec3 R_Arm1_calc(pNode2->GetXCurr() + R_Arm2 - pNode1->GetXCurr());
         Vec3 Vt(pNode2->GetVCurr() - R_Arm2.Cross(pStructNode2->GetWCurr()) - pNode1->GetVCurr()
             + R_Arm1_calc.Cross(pStructNode1->GetWCurr()));
         Vt = Vt - unit_normal*Vt.Dot(unit_normal);
@@ -396,9 +395,9 @@ Collision::AssVec(SubVectorHandler& WorkVec,
         WorkVec.Sub(iR + 7, Ft_vector[i]);
         WorkVec.Sub(iR + 10, R_Arm2.Cross(Ft_vector[i]));
     }
-	if (ChangeJac) {
-		throw Elem::ChangedEquationStructure(MBDYN_EXCEPT_ARGS);
-	}
+    if (ChangeJac) {
+        throw Elem::ChangedEquationStructure(MBDYN_EXCEPT_ARGS);
+    }
 }
 
 std::ostream&
@@ -703,8 +702,8 @@ CollisionWorld::AssJac(VariableSubMatrixHandler& WorkMat,
 {
     //printf("Entering CollisionWorld::AssJac()\n");
     DEBUGCOUT("Entering CollisionWorld::AssJac()" << std::endl);
-	FullSubMatrixHandler& WM = WorkMat.SetFull();
-	WM.ResizeReset(iNumRows, iNumCols);
+    FullSubMatrixHandler& WM = WorkMat.SetFull();
+    WM.ResizeReset(iNumRows, iNumCols);
     integer iDofIndex(iGetFirstIndex());
     integer iRow(0);
     integer iCol(0);
