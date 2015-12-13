@@ -50,11 +50,11 @@ private:
     int iNumDofs;
     doublereal dCalcEpsilon(void);
     Vec3 Arm2;
-    Vec3 F_reaction;
     int index;
     std::vector<Vec3> Arm2_vector;
     std::vector<Vec3> f1_vector;
     std::vector<Vec3> f2_vector;
+    std::vector<doublereal> Fn_Norm_vector;
     std::vector<State> state_vector;
     std::vector<Vec3> Ft_vector;
 public:
@@ -68,7 +68,7 @@ public:
     void InitializeStates(void);
     int ContactsSize(void);
     bool SetOffsets(const int i);
-    std::ostream& OutputAppend(std::ostream& out) const;
+    std::ostream& OutputAppend(std::ostream& out, int i) const;
     void SetIndices(integer* iIndex, integer* iRow, integer* iCol);
     VariableSubMatrixHandler&
     AssJac(VariableSubMatrixHandler& WorkMat,
@@ -104,6 +104,7 @@ private:
     typedef std::pair<btCollisionObject*, btCollisionObject*> ObjectPair;
     std::map<ObjectPair, Collision*> objectpair_collision_map;
     std::set<const Node*> nodes;
+    std::ostringstream ss;
 public:
     CollisionWorld(unsigned uLabel, const DofOwner *pDO,
         DataManager* pDM, MBDynParser& HP);
