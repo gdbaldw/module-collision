@@ -51,7 +51,6 @@ Collision::Collision(const DofOwner* pDO,
 super(-1, pDO, pCL, pN1, pN2, Zero3, Zero3, 1.0, flag(0)),
 iNumRowsNode(6),
 iNumColsNode(6),
-iNumDofs(1),
 pSF(pSF),
 penetration(penetration)
 {
@@ -67,14 +66,14 @@ Collision::dCalcEpsilon(void)
 unsigned int
 Collision::iGetNumDof(void) const
 {
-    return iNumDofs;
+    return 0;
 }
 
 void
 Collision::WorkSpaceDim(integer* piNumRows, integer* piNumCols) const
 {
-    *piNumRows = 2 * iNumRowsNode + iGetNumDof();
-    *piNumCols = 2 * iNumColsNode + iGetNumDof();
+    *piNumRows = 2 * iNumRowsNode;
+    *piNumCols = 2 * iNumColsNode;
 }
 
 int
@@ -89,6 +88,7 @@ Collision::ClearContacts(void)
     Arm2_vector.clear();
     f1_vector.clear();
     f2_vector.clear();
+    Fn_Norm_vector.clear();
 }
 
 void
@@ -96,41 +96,34 @@ Collision::PushBackContact(const btVector3& point1, const btVector3& point2)
 {
     const Vec3 p1(point1[0], point1[1], point1[2]);
     const Vec3 p2(point2[0], point2[1], point2[2]);
-    //printf("push pts: (%f, %f, %f), (%f, %f, %f)\n", p1(1), p1(2), p1(3), p2(1), p2(2), p2(3));
     f1_vector.push_back(dynamic_cast<const StructNode *>(pNode1)->GetRCurr().Transpose()*(p1 - pNode1->GetXCurr()));
     f2_vector.push_back(dynamic_cast<const StructNode *>(pNode2)->GetRCurr().Transpose()*(p2 - pNode2->GetXCurr()));
     Arm2_vector.push_back(dynamic_cast<const StructNode *>(pNode2)->GetRCurr().Transpose()*(p2 + (p1 - p2) * penetration - pNode2->GetXCurr()));
+    Fn_Norm_vector.push_back(0.0);
 }
 
 void
-Collision::InitializeStates(void)
+Collision::InitializeTangentialForces(void)
 {
-    Fn_Norm_vector.clear();
-    state_vector.clear();
     Ft_vector.clear();
     for (int i = 0; i < 4; i++) {
-        Fn_Norm_vector.push_back(0.0);
-        state_vector.push_back(UNDEFINED);
         Ft_vector.push_back(Zero3);
     }
 }
 
 void
-Collision::SetIndices(integer* piDofIndex, integer* piRow, integer* piCol)
+Collision::SetIndices(integer* piRow, integer* piCol)
 {
-    iFirstDofIndex = *piDofIndex;
     iR = *piRow;
     iC = *piCol;
-    *piDofIndex += iNumDofs;
-    *piRow += (2 * iNumRowsNode) + iNumDofs;
-    *piCol += (2 * iNumColsNode) + iNumDofs;
+    *piRow += (2 * iNumRowsNode);
+    *piCol += (2 * iNumColsNode);
 }
 
 bool
 Collision::SetOffsets(const int i)
 {
     //printf("Entering Collision::SetOffsets()\n");
-    index = i;
     Arm2 = Arm2_vector[i];
     f1 = f1_vector[i];
     f2 = f2_vector[i];
@@ -170,19 +163,10 @@ Collision::AssJac(VariableSubMatrixHandler& WorkMat,
         WM.PutColIndex(iC + iCnt, iNode1FirstPosIndex + iCnt);
         WM.PutColIndex(iC + iNumColsNode + iCnt, iNode2FirstPosIndex + iCnt);
     }
-    for (int iCnt = 1; iCnt <= iNumDofs; iCnt++) {
-        WM.PutRowIndex(iR + (2 * iNumRowsNode) + iCnt, iFirstDofIndex + iCnt);
-        WM.PutColIndex(iC + (2 * iNumColsNode) + iCnt, iFirstDofIndex + iCnt);
-    }
     for (int i = 0; i < ContactsSize(); i++) {
         if (SetOffsets(i)) {
             AssMat(WM, dCoef, XCurr, i);
-        } else {
-            //WM.PutCoef(iR + (2 * iNumRowsNode) + i + 1, iC + (2 * iNumColsNode) + i + 1, 1.0);
         }
-    }
-    for (int i = 0 /* ContactsSize() */; i < iNumDofs; i++) {
-        WM.PutCoef(iR + (2 * iNumRowsNode) + i + 1, iC + (2 * iNumColsNode) + i + 1, 1.0);
     }
     return WorkMat;
 }
@@ -274,7 +258,6 @@ Collision::AssMat(FullSubMatrixHandler& WM,
     WM.Sub(iR + 3 + 1, iC + 9 + 1, Tmp2);
 
     /* Resistance */
-    //WM.PutCoef(iR + (2 * iNumRowsNode) + i + 1, iC + (2 * iNumColsNode) + i + 1, 1.0);
     Vec3 R_Arm2(pStructNode2->GetRCurr() * Arm2);
     Vec3 R_Arm1_calc(pNode2->GetXCurr() + R_Arm2 - pNode1->GetXCurr());
     WM.Sub(iR + 4, iC + 4, Mat3x3(MatCrossCross, Ft_vector[i] * dCoef, R_Arm1_calc));
@@ -296,9 +279,6 @@ Collision::AssRes(SubVectorHandler& WorkVec,
       WorkVec.PutRowIndex(iR + iCnt, iNode1FirstMomIndex + iCnt);
       WorkVec.PutRowIndex(iR + iNumRowsNode + iCnt, iNode2FirstMomIndex + iCnt);
     }
-    for (int iCnt = 1; iCnt <= iNumDofs; iCnt++) {
-        WorkVec.PutRowIndex(iR + (2 * iNumRowsNode) + iCnt, iFirstDofIndex + iCnt);
-    }
     bool ChangeJac(false);
     for (int i = 0; i < ContactsSize(); i++) {
         if (SetOffsets(i)) {
@@ -307,12 +287,7 @@ Collision::AssRes(SubVectorHandler& WorkVec,
             } catch (Elem::ChangedEquationStructure) {
                 ChangeJac = true;
             }
-        } else {
-            //WorkVec.PutCoef(iR + (2 * iNumRowsNode) + i + 1, -XCurr(iFirstDofIndex + i + 1));
         }
-    }
-    for (int i = 0 /*ContactsSize()*/; i < iNumDofs; i++) {
-        WorkVec.PutCoef(iR + (2 * iNumRowsNode) + i + 1, -XCurr(iFirstDofIndex + i + 1));
     }
     if (ChangeJac) {
         throw Elem::ChangedEquationStructure(MBDYN_EXCEPT_ARGS);
@@ -348,7 +323,6 @@ Collision::AssVec(SubVectorHandler& WorkVec,
     WorkVec.Sub(iR + 9 + 1, (R2 * f2).Cross(Fn));
 
     /* Resistance */
-    //WorkVec.PutCoef(iR + (2 * iNumRowsNode) + i + 1, -XCurr(iFirstDofIndex + i + 1));
     if (pSF != NULL) {
         Vec3 unit_normal(pNode2->GetXCurr() + R2 * f2 - pNode1->GetXCurr() + R1 * f1);
         unit_normal /= unit_normal.Norm();
@@ -381,14 +355,16 @@ Collision::AssVec(SubVectorHandler& WorkVec,
         Vec3 Ft2_dCoef((R_Arm2.Cross(B2) + G2).Cross(R_Arm2));
         Vec3 Ft((Ft2_dCoef - Ft1_dCoef) / dCoef);
         Ft = Ft - unit_normal*Ft.Dot(unit_normal);
-        Vec3 Ft_max = Ft * (*pSF)(Vt.Norm()) * Fn_Norm_vector[i] / Ft.Norm();
-        if (0 <= Ft.Dot(Ft_vector[i]) && (state_vector[i] == SLIP || 
-            (state_vector[i] == UNDEFINED && Ft_max.Norm() < Ft.Norm()))) {
-            state_vector[i] = SLIP;
+        doublereal Ft_Norm = Ft.Norm();
+        doublereal Ft_max_Norm = (*pSF)(Vt.Norm()) * Fn_Norm_vector[i];
+        Vec3 Ft_max = Ft * (Ft_max_Norm / Ft_Norm);
+        if (Ft_max_Norm < Ft_Norm) {
             Ft_vector[i] = Ft_max;
         } else {
-            state_vector[i] = NO_SLIP;
-            Ft_vector[i] = Zero3;
+            Ft_vector[i] = (Ft_vector[i] + Ft) * 0.5;
+            if (Ft_max_Norm < Ft_vector[i].Norm()) {
+                Ft_vector[i] = Ft_max;
+            }
         }
         WorkVec.Add(iR + 1, Ft_vector[i]);
         WorkVec.Add(iR + 4, R_Arm1_calc.Cross(Ft_vector[i]));
@@ -504,12 +480,11 @@ UserDefinedElem(uLabel, pDO)
         nodes.insert(universe.object_node_map[*it]);
         world->addCollisionObject((*it));
     }
-    iNumDofs = 0;
     iNumRows = 0;
     iNumCols = 0;
     for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
-        it->second->SetIndices(&iNumDofs, &iNumRows, &iNumCols);
+        it->second->SetIndices(&iNumRows, &iNumCols);
     }
     SetOutputFlag(pDM->fReadOutput(HP, Elem::LOADABLE));
 }
@@ -525,7 +500,7 @@ CollisionWorld::~CollisionWorld(void)
 unsigned int
 CollisionWorld::iGetNumDof(void) const
 {
-    return iNumDofs;
+    return 0;
 }
 
 DofOrder::Order
@@ -583,12 +558,12 @@ CollisionWorld::Output(OutputHandler& OH) const
 }
 
 void
-CollisionWorld::InitializeStates(void)
+CollisionWorld::InitializeTangentialForces(void)
 {
-    //printf("Entering CollisionWorld::InitializeStates()\n");
+    //printf("Entering CollisionWorld::InitializeTangentialForces()\n");
     for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
-        it->second->InitializeStates();
+        it->second->InitializeTangentialForces();
     }
 }
 
@@ -623,7 +598,6 @@ CollisionWorld::ClearAndPushContacts(void)
                     p2 = pt.getPositionWorldOnB();
                 }
                 objectpair_collision_map[object_pair]->PushBackContact(p1, p2);
-                //printf("Contact!!\n");
             }
         }
     }
@@ -635,18 +609,13 @@ CollisionWorld::SetValue(DataManager *pDM,
     SimulationEntity::Hints *ph)
 {
     //printf("Entering CollisionWorld::SetValue()\n");
-    InitializeStates();
+    InitializeTangentialForces();
 }
 
 void
 CollisionWorld::AfterPredict(VectorHandler& X, VectorHandler& XP)
 {
     //printf("Entering CollisionWorld::AfterPredict()\n");
-    const integer iFirstReactionIndex = iGetFirstIndex();
-    for (int iCnt = 1; iCnt <= iNumDofs; iCnt++) {
-        X.PutCoef(iFirstReactionIndex + iCnt, 0.0);
-        XP.PutCoef(iFirstReactionIndex + iCnt, 0.0);
-    }
 }
 
 void
@@ -661,7 +630,7 @@ CollisionWorld::AfterConvergence(const VectorHandler& X, const VectorHandler& XP
             it->second->OutputAppend(ss, i);
         }
     }
-    InitializeStates();
+    InitializeTangentialForces();
 }
 
 SubVectorHandler& 
@@ -674,14 +643,13 @@ CollisionWorld::AssRes(SubVectorHandler& WorkVec,
     DEBUGCOUT("Entering CollisionWorld::AssRes()" << std::endl);
     ClearAndPushContacts();
     WorkVec.ResizeReset(iNumRows);
-    integer iDofIndex(iGetFirstIndex());
     integer iRow(0);
     integer iCol(0);
     bool ChangeJac(false);
     for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
         try {
-            it->second->SetIndices(&iDofIndex, &iRow, &iCol);
+            it->second->SetIndices(&iRow, &iCol);
             it->second->AssRes(WorkVec, dCoef, XCurr, XPrimeCurr);
         } catch (Elem::ChangedEquationStructure) {
             ChangeJac = true;
@@ -704,12 +672,11 @@ CollisionWorld::AssJac(VariableSubMatrixHandler& WorkMat,
     DEBUGCOUT("Entering CollisionWorld::AssJac()" << std::endl);
     FullSubMatrixHandler& WM = WorkMat.SetFull();
     WM.ResizeReset(iNumRows, iNumCols);
-    integer iDofIndex(iGetFirstIndex());
     integer iRow(0);
     integer iCol(0);
     for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
-        it->second->SetIndices(&iDofIndex, &iRow, &iCol);
+        it->second->SetIndices(&iRow, &iCol);
         it->second->AssJac(WorkMat, dCoef, XCurr, XPrimeCurr);
     }
     return WorkMat;

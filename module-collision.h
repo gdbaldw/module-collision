@@ -35,27 +35,22 @@
 #define MODULE_COLLISION_H
 
 typedef std::pair<Vec3, Vec3> PointPair;
-enum State {UNDEFINED, SLIP, NO_SLIP};
 
 class Collision : public RodWithOffset {
 private:
     typedef RodWithOffset super;
     const BasicScalarFunction* pSF;
     const doublereal penetration;
-    integer iFirstDofIndex;
     integer iR;
     integer iC;
     int iNumRowsNode;
     int iNumColsNode;
-    int iNumDofs;
     doublereal dCalcEpsilon(void);
     Vec3 Arm2;
-    int index;
     std::vector<Vec3> Arm2_vector;
     std::vector<Vec3> f1_vector;
     std::vector<Vec3> f2_vector;
     std::vector<doublereal> Fn_Norm_vector;
-    std::vector<State> state_vector;
     std::vector<Vec3> Ft_vector;
 public:
     Collision(const DofOwner* pDO, 
@@ -65,11 +60,11 @@ public:
     void WorkSpaceDim(integer* piNumRows, integer* piNumCols) const;
     void PushBackContact(const btVector3& point1, const btVector3& point2);
     void ClearContacts(void);
-    void InitializeStates(void);
+    void InitializeTangentialForces(void);
     int ContactsSize(void);
     bool SetOffsets(const int i);
     std::ostream& OutputAppend(std::ostream& out, int i) const;
-    void SetIndices(integer* iIndex, integer* iRow, integer* iCol);
+    void SetIndices(integer* iRow, integer* iCol);
 
     VariableSubMatrixHandler&
     AssJac(VariableSubMatrixHandler& WorkMat,
@@ -99,7 +94,6 @@ public:
 class CollisionWorld
 : virtual public Elem, public UserDefinedElem {
 private:
-    integer iNumDofs;
     integer iNumRows;
     integer iNumCols;
     btDefaultCollisionConfiguration* configuration;
@@ -126,7 +120,7 @@ public:
     void GetConnectedNodes(std::vector<const Node *>& connectedNodes) const;
     std::ostream& Restart(std::ostream& out) const;
     unsigned int iGetInitialNumDof(void) const;
-    void InitializeStates(void);
+    void InitializeTangentialForces(void);
     void ClearAndPushContacts(void);
 
     void
