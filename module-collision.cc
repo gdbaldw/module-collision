@@ -48,13 +48,25 @@ Collision::Collision(const DofOwner* pDO,
     const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSF, const doublereal penetration,
     const StructNode* pN1, const StructNode* pN2)
 : Elem(-1, flag(0)),
-super(-1, pDO, pCL, pN1, pN2, Zero3, Zero3, 1.0, flag(0)),
+Joint(-1, pDO, flag(0)),
+ConstitutiveLaw1DOwner(pCL),
+pNode1(pN1),
+pNode2(pN2),
+v(Zero3),
+dElle(0.),
+dEpsilon(0.),
+dEpsilonPrime(0.),
 iNumRowsNode(6),
 iNumColsNode(6),
 pSF(pSF),
 penetration(penetration)
+{}
+
+void
+Collision::AfterConvergence(const VectorHandler& X,
+	const VectorHandler& XP)
 {
-    dElle = 0.0;
+	ConstitutiveLaw1DOwner::AfterConvergence(dEpsilon, dEpsilonPrime);
 }
 
 doublereal
@@ -165,17 +177,14 @@ Collision::AssJac(VariableSubMatrixHandler& WorkMat,
     }
     for (int i = 0; i < ContactsSize(); i++) {
         if (SetOffsets(i)) {
-            AssMat(WM, dCoef, XCurr, i);
+            AssMat(WM, dCoef, i);
         }
     }
     return WorkMat;
 }
 
 void
-Collision::AssMat(FullSubMatrixHandler& WM,
-    doublereal dCoef,
-    const VectorHandler& XCurr,
-    const int i)
+Collision::AssMat(FullSubMatrixHandler& WM, doublereal dCoef, const int i)
 {
     const StructNode* pStructNode1(dynamic_cast<const StructNode *>(pNode1));
     const StructNode* pStructNode2(dynamic_cast<const StructNode *>(pNode2));
@@ -193,9 +202,9 @@ Collision::AssMat(FullSubMatrixHandler& WM,
     /* Vettore forza */
     Vec3 F = v*(dF/dElle);
 
-    Mat3x3 K(v.Tens(v * (dCoef * (dFDE / dL0 - (dEpsilonPrime * dFDEPrime + dF) / dElle)/(dElle * dElle))));
+    Mat3x3 K(v.Tens(v * (dCoef * (dFDE - (dEpsilonPrime * dFDEPrime + dF) / dElle)/(dElle * dElle))));
     if (dFDEPrime != 0.) {
-        K += v.Tens(vPrime * (dCoef * dFDEPrime / (dElle * dElle * dL0)));
+        K += v.Tens(vPrime * (dCoef * dFDEPrime / (dElle * dElle)));
     }
     doublereal d = dCoef * dF / dElle;
     for (unsigned iCnt = 1; iCnt <= 3; iCnt++) {
@@ -204,7 +213,7 @@ Collision::AssMat(FullSubMatrixHandler& WM,
 
     Mat3x3 KPrime;
     if (dFDEPrime != 0.) {
-        KPrime = v.Tens(v * (dFDEPrime / (dL0 * dElle * dElle)));
+        KPrime = v.Tens(v * (dFDEPrime / (dElle * dElle)));
     }
 
     /* Termini di forza diagonali */
@@ -283,7 +292,7 @@ Collision::AssRes(SubVectorHandler& WorkVec,
     for (int i = 0; i < ContactsSize(); i++) {
         if (SetOffsets(i)) {
             try {
-                AssVec(WorkVec, dCoef, XCurr, i);
+                AssVec(WorkVec, dCoef, i);
             } catch (Elem::ChangedEquationStructure) {
                 ChangeJac = true;
             }
@@ -296,10 +305,7 @@ Collision::AssRes(SubVectorHandler& WorkVec,
 }
 
 void
-Collision::AssVec(SubVectorHandler& WorkVec,
-    doublereal dCoef,
-    const VectorHandler& XCurr,
-    const int i)
+Collision::AssVec(SubVectorHandler& WorkVec, doublereal dCoef, const int i)
 {
     DEBUGCOUT("RodWithOffset::AssVec()" << std::endl);
     const StructNode* pStructNode1(dynamic_cast<const StructNode *>(pNode1));
@@ -392,6 +398,106 @@ Collision::OutputAppend(std::ostream& out, int i) const {
     out << " " << Fn_Norm_vector[i];
     //ConstitutiveLaw1DOwner::OutputAppend(out);
 }
+
+void
+Collision::Output(OutputHandler& OH) const
+{
+    if (fToBeOutput()) {
+        NO_OP;
+    }
+}
+
+unsigned int
+Collision::iGetNumPrivData(void) const
+{
+    return 0;
+}
+
+unsigned int
+Collision::iGetPrivDataIdx(const char *s) const
+{
+    throw ErrGeneric(MBDYN_EXCEPT_ARGS);
+}
+
+doublereal
+Collision::dGetPrivData(unsigned int i) const
+{
+    ASSERT(i > 1 && i <= iGetNumPrivData());
+    throw ErrGeneric(MBDYN_EXCEPT_ARGS);
+}
+
+int
+Collision::iGetNumConnectedNodes(void) const
+{
+    return 0;
+}
+
+void
+Collision::GetConnectedNodes(std::vector<const Node *>& connectedNodes) const
+{
+    connectedNodes.resize(0);
+}
+
+void
+Collision::SetValue(DataManager *pDM,
+    VectorHandler& X, VectorHandler& XP,
+    SimulationEntity::Hints *ph)
+{
+    NO_OP;
+}
+
+std::ostream&
+Collision::Restart(std::ostream& out) const
+{
+    return out << "# CollisionObject: not implemented" << std::endl;
+}
+
+unsigned int
+Collision::iGetInitialNumDof(void) const
+{
+    return 0;
+}
+
+void 
+Collision::InitialWorkSpaceDim(
+    integer* piNumRows,
+    integer* piNumCols) const
+{
+    *piNumRows = 0;
+    *piNumCols = 0;
+}
+
+
+
+VariableSubMatrixHandler&
+Collision::InitialAssJac(
+    VariableSubMatrixHandler& WorkMat, 
+    const VectorHandler& XCurr)
+{
+    // should not be called, since initial workspace is empty
+    ASSERT(0);
+    DEBUGCOUT("Entering CollisionObject::InitialAssJac()" << std::endl);
+
+    WorkMat.SetNullMatrix();
+
+    return WorkMat;
+}
+
+SubVectorHandler& 
+Collision::InitialAssRes(
+    SubVectorHandler& WorkVec,
+    const VectorHandler& XCurr)
+{
+    // should not be called, since initial workspace is empty
+    ASSERT(0);
+    DEBUGCOUT("Entering CollisionObject::InitialAssRes()" << std::endl);
+
+    WorkVec.ResizeReset(0);
+
+    return WorkVec;
+}
+
+
 
 class Universe {
 public:
