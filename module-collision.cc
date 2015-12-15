@@ -326,8 +326,6 @@ Collision::AssVec(SubVectorHandler& WorkVec,
     if (pSF != NULL) {
         Vec3 unit_normal(pNode2->GetXCurr() + R2 * f2 - pNode1->GetXCurr() - R1 * f1);
         unit_normal /= unit_normal.Norm();
-        //printf("f2: (%f, %f, %f); f1: (%f, %f, %f)\n", f2(1), f2(2), f2(3), f1(1), f1(2), f1(3));
-        //printf("%d %f %f %f\n", i, unit_normal(1), unit_normal(2), unit_normal(3));
         Vec3 R_Arm2(R2*Arm2);
         Vec3 R_Arm1_calc(pNode2->GetXCurr() + R_Arm2 - pNode1->GetXCurr());
         Vec3 Vt(pNode2->GetVCurr() - R_Arm2.Cross(pStructNode2->GetWCurr()) - pNode1->GetVCurr()
