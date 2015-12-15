@@ -186,7 +186,7 @@ Collision::AssMat(FullSubMatrixHandler& WM,
     const Vec3& Omega1(pStructNode1->GetWRef());
     const Vec3& Omega2(pStructNode2->GetWRef());
     Vec3 vPrime(pNode2->GetVCurr() + Omega2.Cross(f2Tmp) - pNode1->GetVCurr() - Omega1.Cross(f1Tmp));
-    doublereal dF = GetF();
+    doublereal dF = GetF() / ContactsSize();
     doublereal dFDE = GetFDE();
     doublereal dFDEPrime = GetFDEPrime();
 
@@ -315,7 +315,7 @@ Collision::AssVec(SubVectorHandler& WorkVec,
     } catch (Elem::ChangedEquationStructure) {
         ChangeJac = true;
     }
-    Fn_Norm_vector[i] = GetF();
+    Fn_Norm_vector[i] = GetF() / ContactsSize();
     Vec3 Fn(v * (Fn_Norm_vector[i] / v.Norm()));
     WorkVec.Add(iR + 1, Fn);
     WorkVec.Add(iR + 3 + 1, (R1 * f1).Cross(Fn));
