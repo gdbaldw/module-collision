@@ -34,67 +34,36 @@
 #ifndef MODULE_COLLISION_H
 #define MODULE_COLLISION_H
 
-typedef std::pair<Vec3, Vec3> PointPair;
-
 class Collision :
-virtual public Elem, public Joint, public ConstitutiveLaw1DOwner  {
+public ConstitutiveLaw1DOwner  {
 private:
     typedef RodWithOffset super;
 	const StructDispNode* pNode1;
 	const StructDispNode* pNode2;
-	Vec3 v;
-	doublereal dElle;
-	doublereal dEpsilon;
-	doublereal dEpsilonPrime;
-	Vec3 f1;
-	Vec3 f2;
     const BasicScalarFunction* pSF;
     const doublereal penetration;
     integer iR;
     integer iC;
     int iNumRowsNode;
     int iNumColsNode;
-    doublereal dCalcEpsilon(void);
-    Vec3 Arm2;
-    std::vector<Vec3> Arm2_vector;
-    std::vector<Vec3> f1_vector;
-    std::vector<Vec3> f2_vector;
-    std::vector<doublereal> Fn_Norm_vector;
-    std::vector<Vec3> Ft_vector;
+    std::vector<Vec3> Arm2;
+    std::vector<Vec3> f1;
+    std::vector<Vec3> f2;
+    std::vector<doublereal> Fn_Norm;
+    std::vector<Vec3> Ft;
+    std::vector<Vec3> v;
+    std::vector<doublereal> dEpsilonPrime;
     void AssMat(FullSubMatrixHandler& WM, doublereal dCoef, const int i);
     void AssVec(SubVectorHandler& WorkVec, doublereal dCoef, const int i);
 public:
     Collision(const DofOwner* pDO, 
         const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSFTmp, const doublereal penetrationTmp,
-        const StructNode* pN1, const StructNode* pN2);
-    virtual void AfterConvergence(const VectorHandler& X, const VectorHandler& XP);
-    unsigned int iGetNumDof(void) const;
-    void WorkSpaceDim(integer* piNumRows, integer* piNumCols) const;
+        const StructNode* pN1, const StructNode* pN2, integer* iRow, integer* iCol);
     void PushBackContact(const btVector3& point1, const btVector3& point2);
     void ClearContacts(void);
-    void InitializeTangentialForces(void);
     int ContactsSize(void);
     bool SetOffsets(const int i);
     std::ostream& OutputAppend(std::ostream& out, int i) const;
-    void SetIndices(integer* iRow, integer* iCol);
-
-    void Output(OutputHandler& OH) const;
-    unsigned int iGetNumPrivData(void) const;
-    unsigned int iGetPrivDataIdx(const char *s) const;
-    doublereal dGetPrivData(unsigned int i) const;
-    int iGetNumConnectedNodes(void) const;
-    void GetConnectedNodes(std::vector<const Node *>& connectedNodes) const;
-    std::ostream& Restart(std::ostream& out) const;
-    unsigned int iGetInitialNumDof(void) const;
-    void InitialWorkSpaceDim(integer* piNumRows, integer* piNumCols) const;
-
-	virtual Joint::Type GetJointType(void) const {
-		return Joint::ROD; 
-	};
-      
-    void
-    SetValue(DataManager *pDM, VectorHandler& X, VectorHandler& XP,
-        SimulationEntity::Hints *ph);
 
     VariableSubMatrixHandler&
     AssJac(VariableSubMatrixHandler& WorkMat,
@@ -107,12 +76,6 @@ public:
         doublereal dCoef,
         const VectorHandler& XCurr, 
         const VectorHandler& XPrimeCurr);
-    
-    VariableSubMatrixHandler&
-    InitialAssJac(VariableSubMatrixHandler& WorkMat, const VectorHandler& XCurr);
-
-    SubVectorHandler& 
-    InitialAssRes(SubVectorHandler& WorkVec, const VectorHandler& XCurr);
 };
 
 class CollisionWorld
@@ -120,6 +83,7 @@ class CollisionWorld
 private:
     integer iNumRows;
     integer iNumCols;
+    btDefaultCollisionConstructionInfo* construction_info;
     btDefaultCollisionConfiguration* configuration;
     btCollisionDispatcher* dispatcher;
     btBroadphaseInterface* broadphase;
@@ -132,9 +96,6 @@ public:
     CollisionWorld(unsigned uLabel, const DofOwner *pDO,
         DataManager* pDM, MBDynParser& HP);
     ~CollisionWorld(void);
-    unsigned int iGetNumDof(void) const;
-    DofOrder::Order GetEqType(unsigned int i) const;
-    DofOrder::Order GetDofType(unsigned int i) const;
     void Output(OutputHandler& OH) const;
     void WorkSpaceDim(integer* piNumRows, integer* piNumCols) const;
     unsigned int iGetNumPrivData(void) const;
@@ -144,11 +105,7 @@ public:
     void GetConnectedNodes(std::vector<const Node *>& connectedNodes) const;
     std::ostream& Restart(std::ostream& out) const;
     unsigned int iGetInitialNumDof(void) const;
-    void InitializeTangentialForces(void);
     void ClearAndPushContacts(void);
-
-    void
-    AfterPredict(VectorHandler& X, VectorHandler& XP);
 
     void
     AfterConvergence(const VectorHandler& X, const VectorHandler& XP);
