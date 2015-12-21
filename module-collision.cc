@@ -44,6 +44,23 @@
 #include <limits>
 #include "module-collision.h"
 
+CollisionObjectData::CollisionObjectData(const StructNode* pNode,
+    btCollisionObject* pBulletObject, fcl::CollisionObject* pFCLObject, std::string material)
+: pNode(pNode),
+pBulletObject(pBulletObject),
+pFCLObject(pFCLObject),
+material(material)
+{
+    NO_OP;
+}
+
+CollisionObjectData::~CollisionObjectData(void)
+{
+    NO_OP;
+}
+
+std::map<const unsigned, CollisionObjectData*> collision_object_data;
+
 Collision::Collision(const DofOwner* pDO, 
     const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSF, const doublereal penetration,
     const StructNode* pN1, const StructNode* pN2, integer* piRow, integer* piCol)
@@ -128,7 +145,6 @@ Collision::AssJac(VariableSubMatrixHandler& WorkMat,
         WM.PutColIndex(iC + iCnt, iNode1FirstPosIndex + iCnt);
         WM.PutColIndex(iC + iNumColsNode + iCnt, iNode2FirstPosIndex + iCnt);
     }
-    //printf("%d ", ContactsSize());
     for (int i = 0; i < ContactsSize(); i++) {
         if (SetOffsets(i)) {
             AssMat(WM, dCoef, i);
@@ -337,12 +353,29 @@ Collision::OutputAppend(std::ostream& out, int i) const {
     //ConstitutiveLaw1DOwner::OutputAppend(out);
 }
 
-class Universe {
-public:
-    std::map<unsigned, btCollisionObject*> label_object_map;
-    std::map<btCollisionObject*, const StructNode*> object_node_map;
-    std::map<btCollisionObject*, std::string> object_material_map;
-} universe;
+bool CollisionFunction(fcl::CollisionObject* o1, fcl::CollisionObject* o2, void* cdata_)
+{
+    std::map<const FCLObjectPair, Collision*> objectpair_collision_map(
+        *(static_cast<std::map<const FCLObjectPair, Collision*>*>(cdata_)));
+    FCLObjectPair object_pair(o1, o2);
+    if (objectpair_collision_map.count(object_pair) == 0) {
+        std::swap(object_pair.first, object_pair.second);
+        if (objectpair_collision_map.count(object_pair) == 0) {
+            return true;
+        }
+    }
+    const fcl::CollisionRequest& request = objectpair_collision_map[object_pair]->request;
+    fcl::CollisionResult& result = objectpair_collision_map[object_pair]->result;
+    if(objectpair_collision_map[object_pair]->done) {
+        return true;
+    }
+    fcl::collide(o1, o2, request, result);
+    if(!request.enable_cost && (result.isCollision()) && (result.numContacts() >= request.num_max_contacts)) {
+        objectpair_collision_map[object_pair]->done = true;
+    }
+    return objectpair_collision_map[object_pair]->done;
+}
+
 
 // CollisionWorld: begin
 
@@ -376,14 +409,13 @@ UserDefinedElem(uLabel, pDO)
             throw NoErr(MBDYN_EXCEPT_ARGS);
         }
     }
-    construction_info = new btDefaultCollisionConstructionInfo();
-    //construction_info->m_useEpaPenetrationAlgorithm = false;
-    configuration = new btDefaultCollisionConfiguration(*construction_info);
+    configuration = new btDefaultCollisionConfiguration();
     configuration->setConvexConvexMultipointIterations();
     configuration->setPlaneConvexMultipointIterations();
     dispatcher = new btCollisionDispatcher(configuration);
     broadphase = new btDbvtBroadphase();
     world = new btCollisionWorld(dispatcher, broadphase, configuration);
+    fcl_broadphase = new fcl::DynamicAABBTreeCollisionManager();
     int N_CL = HP.GetInt();
     int N_CO = HP.GetInt();
     ConstLawType::Type VECLType(ConstLawType::VISCOELASTIC);
@@ -402,45 +434,49 @@ UserDefinedElem(uLabel, pDO)
             penetration[material_pair] = 0.0;
         }
     }
-    std::set<btCollisionObject*> all_objects;
-    std::set<btCollisionObject*> objects;
+    std::set<CollisionObjectData*> all_objects;
+    std::set<CollisionObjectData*> objects;
     iNumRows = 0;
     iNumCols = 0;
     for (int i; i < N_CO; i++) {
-        btCollisionObject* ob = universe.label_object_map[HP.GetInt()];
-        for (std::set<btCollisionObject*>::iterator it = all_objects.begin();
+        CollisionObjectData* ob_data(collision_object_data[HP.GetInt()]);
+        btCollisionObject* ob = ob_data->pBulletObject;
+        for (std::set<CollisionObjectData*>::iterator it = all_objects.begin();
             it != all_objects.end(); it++) {
             MaterialPair material_pair(std::make_pair(
-                universe.object_material_map[ob], universe.object_material_map[*it]));
+                ob_data->material, (*it)->material));
             if (pCL.find(material_pair) == pCL.end()) {
                 std::swap(material_pair.first, material_pair.second);
             }
             if (pCL.find(material_pair) != pCL.end()) {
-                objectpair_collision_map[std::make_pair(ob, *it)] = new Collision(
+                ObjectPair object_pair(std::make_pair(ob_data->pBulletObject, (*it)->pBulletObject));
+                //FCLObjectPair object_pair(std::make_pair(ob_data->pFCLObject, (*it)->pFCLObject));
+                objectpair_collision_map[object_pair] = new Collision(
                     pDO, pCL[material_pair], pSF[material_pair], penetration[material_pair],
-                    universe.object_node_map[ob], universe.object_node_map[*it],
+                    ob_data->pNode, (*it)->pNode,
                     &iNumRows, &iNumCols);
-                objects.insert(ob);
+                objects.insert(ob_data);
                 objects.insert(*it);
             }
         }
-        all_objects.insert(ob);
+        all_objects.insert(ob_data);
     }
-    for (std::set<btCollisionObject*>::iterator it = objects.begin();
+    for (std::set<CollisionObjectData*>::iterator it = objects.begin();
         it != objects.end(); it++) {
-        nodes.insert(universe.object_node_map[*it]);
-        world->addCollisionObject((*it));
+        nodes.insert((*it)->pNode);
+        world->addCollisionObject((*it)->pBulletObject);
+        fcl_broadphase->registerObject((*it)->pFCLObject);
     }
     SetOutputFlag(pDM->fReadOutput(HP, Elem::LOADABLE));
 }
 
 CollisionWorld::~CollisionWorld(void)
 {
+    delete fcl_broadphase;
     delete world;
     delete broadphase;
     delete dispatcher;
     delete configuration;
-    delete construction_info;
 }
 
 void
@@ -491,6 +527,22 @@ CollisionWorld::ClearAndPushContacts(void)
         it != objectpair_collision_map.end(); it++) {
         it->second->ClearContacts();
     }
+    /*
+    fcl_broadphase->collide(&objectpair_collision_map, CollisionFunction);
+    for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
+        it != objectpair_collision_map.end(); it++) {
+        std::vector<fcl::Contact> contacts;
+        it->second->result.getContacts(contacts);
+        for (std::vector<fcl::Contact>::iterator it = contacts.begin(); it != contacts.end(); it++) {
+            (*it).o1;
+            (*it).o2;
+            (*it).pos;
+            (*it).normal;
+            (*it).penetration_depth;
+            printf("%f %f %f\n", (*it).normal[0], (*it).normal[1], (*it).normal[2]);
+        }
+    }
+    */
     world->performDiscreteCollisionDetection();
     for (int i = 0; i < dispatcher->getNumManifolds() ; i++) {
         btPersistentManifold* manifold(dispatcher->getManifoldByIndexInternal(i));
@@ -502,7 +554,6 @@ CollisionWorld::ClearAndPushContacts(void)
             swapped = true;
         }
         if (objectpair_collision_map.count(object_pair)) {
-            //printf("%d ", manifold->getNumContacts());
             for (int k = 0; k < manifold->getNumContacts(); k++) {
                 btManifoldPoint& pt(manifold->getContactPoint(k));
                 btVector3 p1;
@@ -552,18 +603,9 @@ CollisionWorld::AssRes(SubVectorHandler& WorkVec,
     DEBUGCOUT("Entering CollisionWorld::AssRes()" << std::endl);
     ClearAndPushContacts();
     WorkVec.ResizeReset(iNumRows);
-    bool ChangeJac(false);
     for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
-        try {
-            it->second->AssRes(WorkVec, dCoef, XCurr, XPrimeCurr);
-        } catch (Elem::ChangedEquationStructure) {
-            ChangeJac = true;
-            //printf("Changed Jac\n");
-        }
-    }
-    if (ChangeJac) {
-        throw Elem::ChangedEquationStructure(MBDYN_EXCEPT_ARGS);
+        it->second->AssRes(WorkVec, dCoef, XCurr, XPrimeCurr);
     }
     return WorkVec;
 }
@@ -722,29 +764,43 @@ UserDefinedElem(uLabel, pDO)
     btTransform& transform = ob->getWorldTransform();
     transform.setOrigin(btVector3(x[0], x[1], x[2]));
     transform.setBasis(btMatrix3x3(r.dGet(1,1),r.dGet(1,2),r.dGet(1,3),r.dGet(2,1),r.dGet(2,2),r.dGet(2,3),r.dGet(3,1),r.dGet(3,2),r.dGet(3,3)));
+    fcl::Transform3f tf;
+    tf.setIdentity();
+    tf.setTranslation(fcl::Vec3f(x[0], x[1], x[2]));
+    tf.setRotation(fcl::Matrix3f(r.dGet(1,1),r.dGet(1,2),r.dGet(1,3),r.dGet(2,1),r.dGet(2,2),r.dGet(2,3),r.dGet(3,1),r.dGet(3,2),r.dGet(3,3)));
     const TypedValue material(HP.GetValue(TypedValue::VAR_STRING));
     if (HP.IsKeyWord("btBoxShape")) {
-        btScalar x(HP.GetReal());
-        btScalar y(HP.GetReal());
-        btScalar z(HP.GetReal());
+        const float x(HP.GetReal());
+        const float y(HP.GetReal());
+        const float z(HP.GetReal());
+        CollisionGeometryPtr_t fcl_shape(new fcl::Box(x, y, z));
+        fcl_ob = new fcl::CollisionObject(fcl_shape, tf);
         shape = new btBoxShape(btVector3(x, y, z));
         printf("btBoxShape");
     } else if (HP.IsKeyWord("btCapsuleShape")) {
-        btScalar radius(HP.GetReal());
-        btScalar height(HP.GetReal());
+        const float radius(HP.GetReal());
+        const float height(HP.GetReal());
+        CollisionGeometryPtr_t fcl_shape(new fcl::Capsule(radius, height));
+        fcl_ob = new fcl::CollisionObject(fcl_shape, tf);
         shape = new btCapsuleShape(radius*.96, height*.92);
         printf("btCapsuleShape");
     } else if (HP.IsKeyWord("btConeShape")) {
-        btScalar radius(HP.GetReal());
-        btScalar height(HP.GetReal());
+        const float radius(HP.GetReal());
+        const float height(HP.GetReal());
+        CollisionGeometryPtr_t fcl_shape(new fcl::Cone(radius, height));
+        fcl_ob = new fcl::CollisionObject(fcl_shape, tf);
         shape = new btConeShape(radius, height);
         printf("btConeShape");
     } else if (HP.IsKeyWord("btSphereShape")) {
-        btScalar radius(HP.GetReal());
+        const float radius(HP.GetReal());
         shape = new btSphereShape(radius);
+        CollisionGeometryPtr_t fcl_shape(new fcl::Sphere(radius));
+        fcl_ob = new fcl::CollisionObject(fcl_shape, tf);
         printf("btSphereShape");
     } else if (HP.IsKeyWord("btStaticPlaneShape")) {
         const btVector3 z_plane(0., 0., 1.);
+        CollisionGeometryPtr_t fcl_shape(new fcl::Plane(0., 0.0, 1., 0.));
+        fcl_ob = new fcl::CollisionObject(fcl_shape, tf);
         shape = new btStaticPlaneShape(z_plane, 0.);
         printf("btStaticPlaneShape");
     } else {
@@ -757,15 +813,14 @@ UserDefinedElem(uLabel, pDO)
     }
     printf(", getMargin() %f\n", shape->getMargin());
     ob->setCollisionShape(shape);
-    universe.label_object_map[uLabel] = ob;
-    universe.object_node_map[ob] = pNode;
-    universe.object_material_map[ob] = material.GetString();
+    collision_object_data[uLabel] = new CollisionObjectData(pNode, ob, fcl_ob, material.GetString());
     SetOutputFlag(pDM->fReadOutput(HP, Elem::LOADABLE));
 }
 
 CollisionObject::~CollisionObject(void)
 {
     delete ob;
+    delete fcl_ob;
     delete shape;
 }
 
@@ -810,6 +865,9 @@ CollisionObject::AssRes(SubVectorHandler& WorkVec,
     btTransform& transform = ob->getWorldTransform();
     transform.setOrigin(btVector3(x[0], x[1], x[2]));
     transform.setBasis(btMatrix3x3(r.dGet(1,1),r.dGet(1,2),r.dGet(1,3),r.dGet(2,1),r.dGet(2,2),r.dGet(2,3),r.dGet(3,1),r.dGet(3,2),r.dGet(3,3)));
+    fcl_ob->setTransform(
+        fcl::Matrix3f(r.dGet(1,1),r.dGet(1,2),r.dGet(1,3),r.dGet(2,1),r.dGet(2,2),r.dGet(2,3),r.dGet(3,1),r.dGet(3,2),r.dGet(3,3)),
+        fcl::Vec3f(x[0], x[1], x[2]));
     
     return WorkVec;
 }

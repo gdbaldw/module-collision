@@ -34,6 +34,23 @@
 #ifndef MODULE_COLLISION_H
 #define MODULE_COLLISION_H
 
+#include <boost/foreach.hpp>
+#include <fcl/shape/geometric_shapes.h>
+#include <fcl/shape/geometric_shapes_utility.h>
+#include <fcl/narrowphase/narrowphase.h>
+#include <fcl/broadphase/broadphase.h>
+#include <fcl/collision.h>
+
+class CollisionObjectData {
+public:
+    CollisionObjectData(const StructNode* pNode, btCollisionObject* pBulletObject, fcl::CollisionObject* pFCLObject, std::string material);
+    ~CollisionObjectData(void);
+    const StructNode* pNode;
+    btCollisionObject* pBulletObject;
+    fcl::CollisionObject* pFCLObject;
+    std::string material;
+};
+
 class Collision :
 public ConstitutiveLaw1DOwner  {
 private:
@@ -59,6 +76,9 @@ public:
     Collision(const DofOwner* pDO, 
         const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSFTmp, const doublereal penetrationTmp,
         const StructNode* pN1, const StructNode* pN2, integer* iRow, integer* iCol);
+    fcl::CollisionRequest request;
+    fcl::CollisionResult result;
+    bool done;
     void PushBackContact(const btVector3& point1, const btVector3& point2);
     void ClearContacts(void);
     int ContactsSize(void);
@@ -78,18 +98,20 @@ public:
         const VectorHandler& XPrimeCurr);
 };
 
+typedef std::pair<btCollisionObject*, btCollisionObject*> ObjectPair;
+typedef std::pair<fcl::CollisionObject*, fcl::CollisionObject*> FCLObjectPair;
+
 class CollisionWorld
 : virtual public Elem, public UserDefinedElem {
 private:
     integer iNumRows;
     integer iNumCols;
-    btDefaultCollisionConstructionInfo* construction_info;
     btDefaultCollisionConfiguration* configuration;
     btCollisionDispatcher* dispatcher;
     btBroadphaseInterface* broadphase;
     btCollisionWorld* world;
-    typedef std::pair<btCollisionObject*, btCollisionObject*> ObjectPair;
-    std::map<ObjectPair, Collision*> objectpair_collision_map;
+    fcl::BroadPhaseCollisionManager* fcl_broadphase;
+    std::map<const ObjectPair, Collision*> objectpair_collision_map;
     std::set<const Node*> nodes;
     std::ostringstream ss;
 public:
@@ -144,6 +166,8 @@ private:
     Mat3x3 Rh;
     btCollisionObject* ob;
     btCollisionShape* shape;
+    typedef boost::shared_ptr <fcl::CollisionGeometry> CollisionGeometryPtr_t;
+    fcl::CollisionObject* fcl_ob;
 public:
     CollisionObject(unsigned uLabel, const DofOwner *pDO,
         DataManager* pDM, MBDynParser& HP);
