@@ -41,13 +41,29 @@
 #include <fcl/broadphase/broadphase.h>
 #include <fcl/collision.h>
 
+class Contact {
+public:
+    Contact(fcl::Contact contact, const StructDispNode* pNode1, const StructDispNode* pNode2, doublereal penetration_ratio);
+    ~Contact(void);
+	const StructDispNode* pNode1;
+	const StructDispNode* pNode2;
+    Vec3 normal;
+    doublereal depth;
+    Vec3 Arm1;
+    Vec3 f1;
+    Vec3 f2;
+    Vec3 Ft;
+    Vec3 Vt;
+    doublereal Fn_Norm;
+    doublereal Vn_Norm;
+};
+
 class CollisionObjectData {
 public:
-    CollisionObjectData(const StructNode* pNode, btCollisionObject* pBulletObject, fcl::CollisionObject* pFCLObject, std::string material);
+    CollisionObjectData(const StructNode* pNode, fcl::CollisionObject* pObject, std::string material);
     ~CollisionObjectData(void);
     const StructNode* pNode;
-    btCollisionObject* pBulletObject;
-    fcl::CollisionObject* pFCLObject;
+    fcl::CollisionObject* pObject;
     std::string material;
 };
 
@@ -58,32 +74,26 @@ private:
 	const StructDispNode* pNode1;
 	const StructDispNode* pNode2;
     const BasicScalarFunction* pSF;
-    const doublereal penetration;
+    const doublereal penetration_ratio;
     integer iR;
     integer iC;
     int iNumRowsNode;
     int iNumColsNode;
-    std::vector<Vec3> Arm2;
-    std::vector<Vec3> f1;
-    std::vector<Vec3> f2;
-    std::vector<doublereal> Fn_Norm;
-    std::vector<Vec3> Ft;
-    std::vector<Vec3> v;
     std::vector<doublereal> dEpsilonPrime;
-    void AssMat(FullSubMatrixHandler& WM, doublereal dCoef, const int i);
-    void AssVec(SubVectorHandler& WorkVec, doublereal dCoef, const int i);
+    std::vector<Contact> contacts;
+    void AssMat(FullSubMatrixHandler& WM, doublereal dCoef, Contact& contact);
+    void AssVec(SubVectorHandler& WorkVec, doublereal dCoef, Contact& contact);
+    Vec3 G1;
+    Vec3 B1;
+    Vec3 G2;
+    Vec3 B2;
 public:
     Collision(const DofOwner* pDO, 
-        const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSFTmp, const doublereal penetrationTmp,
+        const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSFTmp, const doublereal penetration_ratio,
         const StructNode* pN1, const StructNode* pN2, integer* iRow, integer* iCol);
-    fcl::CollisionRequest request;
-    fcl::CollisionResult result;
-    bool done;
-    void PushBackContact(const btVector3& point1, const btVector3& point2);
+    void PutContacts(std::vector<fcl::Contact>& contacts_, bool swapped);
     void ClearContacts(void);
-    int ContactsSize(void);
-    bool SetOffsets(const int i);
-    std::ostream& OutputAppend(std::ostream& out, int i) const;
+    std::ostream& OutputAppend(std::ostream& out) const;
 
     VariableSubMatrixHandler&
     AssJac(VariableSubMatrixHandler& WorkMat,
@@ -98,22 +108,18 @@ public:
         const VectorHandler& XPrimeCurr);
 };
 
-typedef std::pair<btCollisionObject*, btCollisionObject*> ObjectPair;
-typedef std::pair<fcl::CollisionObject*, fcl::CollisionObject*> FCLObjectPair;
+typedef std::pair<fcl::CollisionObject*, fcl::CollisionObject*> ObjectPair;
 
 class CollisionWorld
 : virtual public Elem, public UserDefinedElem {
 private:
     integer iNumRows;
     integer iNumCols;
-    btDefaultCollisionConfiguration* configuration;
-    btCollisionDispatcher* dispatcher;
-    btBroadphaseInterface* broadphase;
-    btCollisionWorld* world;
-    fcl::BroadPhaseCollisionManager* fcl_broadphase;
+    fcl::BroadPhaseCollisionManager* collision_manager;
     std::map<const ObjectPair, Collision*> objectpair_collision_map;
     std::set<const Node*> nodes;
     std::ostringstream ss;
+    void Collide(void);
 public:
     CollisionWorld(unsigned uLabel, const DofOwner *pDO,
         DataManager* pDM, MBDynParser& HP);
@@ -127,7 +133,9 @@ public:
     void GetConnectedNodes(std::vector<const Node *>& connectedNodes) const;
     std::ostream& Restart(std::ostream& out) const;
     unsigned int iGetInitialNumDof(void) const;
-    void ClearAndPushContacts(void);
+
+    void
+    AfterPredict(VectorHandler& X, VectorHandler& XP);
 
     void
     AfterConvergence(const VectorHandler& X, const VectorHandler& XP);
@@ -163,11 +171,9 @@ class CollisionObject
 private:
     const StructNode* pNode;
     Vec3 f;
-    Mat3x3 Rh;
-    btCollisionObject* ob;
-    btCollisionShape* shape;
+    Mat3x3 R;
     typedef boost::shared_ptr <fcl::CollisionGeometry> CollisionGeometryPtr_t;
-    fcl::CollisionObject* fcl_ob;
+    fcl::CollisionObject* ob;
 public:
     CollisionObject(unsigned uLabel, const DofOwner *pDO,
         DataManager* pDM, MBDynParser& HP);
@@ -182,6 +188,13 @@ public:
     std::ostream& Restart(std::ostream& out) const;
     unsigned int iGetInitialNumDof(void) const;
     void InitialWorkSpaceDim(integer* piNumRows, integer* piNumCols) const;
+    void Transform(void);
+
+    void
+    AfterPredict(VectorHandler& X, VectorHandler& XP);
+
+    void
+    AfterConvergence(const VectorHandler& X, const VectorHandler& XP);
 
     VariableSubMatrixHandler& 
     AssJac(VariableSubMatrixHandler& WorkMat,

@@ -1,10 +1,8 @@
-module-collision simulates impacts having any 1D Constitutive, with dynamic and static friction coefficient as any function of velocity, for each of N-pairs of collision bodies within a collision world. The module is available at https://github.com/gdbaldw/module-collision and a demonstration video is available at https://youtu.be/8TlC2ZT-VMA.
+module-collision simulates impacts having any 1D Constitutive, with dynamic and static friction coefficient as any function of velocity, for each of N-pairs of collision bodies within a collision world. The module is available at https://github.com/gdbaldw/module-collision and requires installation of the fork of fcl available at https://github.com/gdbaldw/fcl. BlenderAndMBDyn is recommended, available at https://github.com/gdbaldw/BlenderAndMBDyn.
 
-Prerequisites:
-- For mbdyn v1.7, the accompanying patch to rodj is required.
-- libBullet must also be installed.
+As of 6 JAN 2016, only Sphere and Plane shapes are tested. All other shapes must be vetted, and will require edits to this fork of fcl.
 
-For both Debian and Ubuntu, the following configuration line works.
+For both Debian and Ubuntu, the following configuration line works:
 
-./configure --enable-runtime-loading --with-module="inline_friction collision" LDFLAGS="-rdynamic -lBulletSoftBody -lBulletDynamics -lBulletCollision -lLinearMath" CPPFLAGS=-I/usr/include/bullet
+./configure --enable-runtime-loading --with-module="collision" LDFLAGS="-rdynamic -lfcl"
 
