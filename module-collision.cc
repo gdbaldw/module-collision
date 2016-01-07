@@ -415,9 +415,9 @@ UserDefinedElem(uLabel, pDO)
             "    This element implements a collision world\n"
             "\n"
             "    collision world,\n"
-            "       (integer)<number_of_material_pairs>,\n"
+            "       [material pairs,] (integer)<number_of_material_pairs>,\n"
             "           <material_pair> [,...]\n"
-            "       (integer)<number_of_collision_objects>,\n"
+            "       [collision objects,] (integer)<number_of_collision_objects>,\n"
             "           (CollisionObject) <label> [,...]\n"
             "\n"
             "    <material_pair> ::= (str)<material1>, (str)<material2>, (ConstitutiveLaw<1D>)<const_law>\n"
@@ -437,6 +437,7 @@ UserDefinedElem(uLabel, pDO)
     std::map<MaterialPair, ConstitutiveLaw1D*> pCL;
     std::map<MaterialPair, const BasicScalarFunction*> pSF;
     std::map<MaterialPair, doublereal> penetration_ratio;
+    HP.IsKeyWord("material" "pairs");
     int N = HP.GetInt();
     for (int i; i < N; i++) {
         MaterialPair material_pair(std::make_pair(HP.GetValue(TypedValue::VAR_STRING).GetString(), HP.GetValue(TypedValue::VAR_STRING).GetString()));
@@ -460,6 +461,7 @@ UserDefinedElem(uLabel, pDO)
     std::set<CollisionObjectData*> objects;
     iNumRows = 0;
     iNumCols = 0;
+    HP.IsKeyWord("collision" "objects");
     N = HP.GetInt();
     for (int i; i < N; i++) {
         CollisionObjectData* ob_data(collision_object_data[HP.GetInt()]);
@@ -735,28 +737,28 @@ UserDefinedElem(uLabel, pDO)
     fcl::Vec3f translate(x[0], x[1], x[2]);
     fcl::Matrix3f rotate(r.dGet(1,1),r.dGet(1,2),r.dGet(1,3),r.dGet(2,1),r.dGet(2,2),r.dGet(2,3),r.dGet(3,1),r.dGet(3,2),r.dGet(3,3));
     const TypedValue material(HP.GetValue(TypedValue::VAR_STRING));
-    /*if (HP.IsKeyWord("Box")) {
+    /*if (HP.IsKeyWord("box")) {
         const float x(HP.GetReal());
         const float y(HP.GetReal());
         const float z(HP.GetReal());
         CollisionGeometryPtr_t fcl_shape(new fcl::Box(2 * x, 2 * y, 2 * z));
         ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
-    } else if (HP.IsKeyWord("Capsule")) {
+    } else if (HP.IsKeyWord("capsule")) {
         const float radius(HP.GetReal());
         const float height(HP.GetReal());
         CollisionGeometryPtr_t fcl_shape(new fcl::Capsule(radius, height));
         ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
-    } else if (HP.IsKeyWord("Cone")) {
+    } else if (HP.IsKeyWord("cone")) {
         const float radius(HP.GetReal());
         const float height(HP.GetReal());
         CollisionGeometryPtr_t fcl_shape(new fcl::Cone(radius, height));
         ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
-    } else */if (HP.IsKeyWord("Sphere")) {
+    } else */if (HP.IsKeyWord("plane")) {
+        CollisionGeometryPtr_t fcl_shape(new fcl::Plane(0., 0., 1., 0.));
+        ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
+    } else if (HP.IsKeyWord("sphere")) {
         const float radius(HP.GetReal());
         CollisionGeometryPtr_t fcl_shape(new fcl::Sphere(radius));
-        ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
-    } else if (HP.IsKeyWord("Plane")) {
-        CollisionGeometryPtr_t fcl_shape(new fcl::Plane(0., 0., 1., 0.));
         ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
     } else {
         silent_cerr("collision object(" << GetLabel() << "): a valid shape is expected at line " << HP.GetLineData() << std::endl);
