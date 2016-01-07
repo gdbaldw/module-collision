@@ -47,15 +47,11 @@ public:
     ~Contact(void);
 	const StructDispNode* pNode1;
 	const StructDispNode* pNode2;
-    Vec3 normal;
-    doublereal depth;
     Vec3 Arm1;
     Vec3 f1;
     Vec3 f2;
     Vec3 Ft;
-    Vec3 Vt;
     doublereal Fn_Norm;
-    doublereal Vn_Norm;
 };
 
 class CollisionObjectData {
@@ -83,10 +79,6 @@ private:
     std::vector<Contact> contacts;
     void AssMat(FullSubMatrixHandler& WM, doublereal dCoef, Contact& contact);
     void AssVec(SubVectorHandler& WorkVec, doublereal dCoef, Contact& contact);
-    Vec3 G1;
-    Vec3 B1;
-    Vec3 G2;
-    Vec3 B2;
 public:
     Collision(const DofOwner* pDO, 
         const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSFTmp, const doublereal penetration_ratio,
@@ -119,7 +111,6 @@ private:
     std::map<const ObjectPair, Collision*> objectpair_collision_map;
     std::set<const Node*> nodes;
     std::ostringstream ss;
-    void Collide(void);
 public:
     CollisionWorld(unsigned uLabel, const DofOwner *pDO,
         DataManager* pDM, MBDynParser& HP);
@@ -133,9 +124,6 @@ public:
     void GetConnectedNodes(std::vector<const Node *>& connectedNodes) const;
     std::ostream& Restart(std::ostream& out) const;
     unsigned int iGetInitialNumDof(void) const;
-
-    void
-    AfterPredict(VectorHandler& X, VectorHandler& XP);
 
     void
     AfterConvergence(const VectorHandler& X, const VectorHandler& XP);
@@ -188,13 +176,6 @@ public:
     std::ostream& Restart(std::ostream& out) const;
     unsigned int iGetInitialNumDof(void) const;
     void InitialWorkSpaceDim(integer* piNumRows, integer* piNumCols) const;
-    void Transform(void);
-
-    void
-    AfterPredict(VectorHandler& X, VectorHandler& XP);
-
-    void
-    AfterConvergence(const VectorHandler& X, const VectorHandler& XP);
 
     VariableSubMatrixHandler& 
     AssJac(VariableSubMatrixHandler& WorkMat,

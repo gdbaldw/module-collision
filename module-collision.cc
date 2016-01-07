@@ -44,17 +44,14 @@
 #include "module-collision.h"
 
 Contact::Contact(fcl::Contact contact, const StructDispNode* pNode1, const StructDispNode* pNode2, doublereal penetration_ratio)
-: normal(-Vec3(contact.normal[0], contact.normal[1], contact.normal[2])), // towards Node1
-depth(contact.penetration_depth),
-pNode1(pNode1), pNode2(pNode2),
-Ft(Zero3), Fn_Norm(0.0),
-Vt(Zero3), Vn_Norm(0.0)
+: pNode1(pNode1), pNode2(pNode2),
+Ft(Zero3), Fn_Norm(0.0)
 {
-    Vec3 pos(Vec3(contact.pos[0], contact.pos[1], contact.pos[2]));
-    f1 = dynamic_cast<const StructNode *>(pNode1)->GetRCurr().Transpose() * (pos - normal * 0.5 * depth - pNode1->GetXCurr());
-    f2 = dynamic_cast<const StructNode *>(pNode2)->GetRCurr().Transpose() * (pos + normal * 0.5 * depth - pNode2->GetXCurr());
-    Arm1 = dynamic_cast<const StructNode *>(pNode1)->GetRCurr().Transpose() * (pos - normal * 0.5 * depth + normal * (1.0 - penetration_ratio) * depth - pNode1->GetXCurr());
-    //printf("pos (%f, %f, %f) %f\n", pos(1), pos(2), pos(3), depth);
+    const Vec3 normal(-Vec3(contact.normal[0], contact.normal[1], contact.normal[2])); // towards Node1
+    const Vec3 pos(Vec3(contact.pos[0], contact.pos[1], contact.pos[2]));
+    f1 = dynamic_cast<const StructNode *>(pNode1)->GetRCurr().Transpose() * (pos - normal * 0.5 * contact.penetration_depth - pNode1->GetXCurr());
+    f2 = dynamic_cast<const StructNode *>(pNode2)->GetRCurr().Transpose() * (pos + normal * 0.5 * contact.penetration_depth - pNode2->GetXCurr());
+    Arm1 = dynamic_cast<const StructNode *>(pNode1)->GetRCurr().Transpose() * (pos - normal * (0.5 - penetration_ratio) * contact.penetration_depth - pNode1->GetXCurr());
 }
 
 Contact::~Contact(void)
@@ -87,11 +84,7 @@ pNode2(pN2),
 iNumRowsNode(6),
 iNumColsNode(6),
 pSF(pSF),
-penetration_ratio(penetration_ratio),
-G1(Zero3),
-B1(Zero3),
-G2(Zero3),
-B2(Zero3)
+penetration_ratio(penetration_ratio)
 {
     iR = *piRow;
     iC = *piCol;
@@ -154,23 +147,25 @@ Collision::AssMat(FullSubMatrixHandler& WM, doublereal dCoef, Contact& contact)
     const Mat3x3 R2(pStructNode2->GetRCurr());
     
     /* Impact */
-    ConstitutiveLaw1DOwner::Update(contact.depth, contact.Vn_Norm);
     const Vec3 Rf1(R1 * contact.f1);
     const Vec3 Rf2(R2 * contact.f2);
     const Vec3 V(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(Rf2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(Rf1));
     Vec3 normal = pNode2->GetXCurr() + Rf2 - pNode1->GetXCurr() - Rf1;
+    const doublereal depth = normal.Norm();
     normal /= normal.Norm();
-    doublereal Fn_Norm = GetF() / contacts.size(); // Should restitution be clipped for < 0.0 ?
+    const doublereal Vn_Norm = V.Dot(normal);
+    ConstitutiveLaw1DOwner::Update(depth, Vn_Norm);
+    doublereal Fn_Norm = GetF() / contacts.size();
     doublereal FDEPrime = GetFDEPrime();
 
     /* Vettore forza */
     const Vec3 Fn = normal * Fn_Norm;
 
-    Mat3x3 K(normal.Tens() * (dCoef * (GetFDE() + (normal.Dot(V) * FDEPrime - Fn_Norm) / contact.depth)));
+    Mat3x3 K(normal.Tens() * (dCoef * (GetFDE() + (normal.Dot(V) * FDEPrime - Fn_Norm) / depth)));
     if (FDEPrime != 0.) {
-        K += normal.Tens(V) * (dCoef * FDEPrime / contact.depth);
+        K += normal.Tens(V) * (dCoef * FDEPrime / depth);
     }
-    doublereal d = dCoef * Fn_Norm / contact.depth;
+    doublereal d = dCoef * Fn_Norm / depth;
     for (unsigned iCnt = 1; iCnt <= 3; iCnt++) {
         K(iCnt, iCnt) += d;
     }
@@ -254,16 +249,13 @@ Collision::AssMat(FullSubMatrixHandler& WM, doublereal dCoef, Contact& contact)
         }
         const Vec3 R_Arm1(R1 * contact.Arm1);
         const Vec3 R_Arm2(pNode1->GetXCurr() + R_Arm1 - pNode2->GetXCurr());
-        const Vec3 center1 = R_Arm1 * 0.5;
-        const Vec3 center2 = R_Arm2 * 0.5;
-        const Vec3 Ft1_dCoef((center1.Cross(B1) + G1).Cross(center1));
-        const Vec3 Ft2_dCoef((center2.Cross(B2) + G2).Cross(center2));
-        const Vec3 Ft_calc((Ft2_dCoef - Ft1_dCoef) / (dCoef * contacts.size()));
-        Vec3 Ft = Ft_calc - normal*Ft_calc.Dot(normal);
-        const doublereal Ft_Norm = Ft.Norm();
-        const doublereal Ft_max_Norm = (*pSF)((V - normal*contact.Vn_Norm).Norm()) * contact.Fn_Norm;
-        if (Ft_max_Norm < Ft_Norm) {
-            Ft *= (Ft_max_Norm / Ft_Norm);
+        const Vec3 Ft1_dCoef(((R_Arm1 * 0.5).Cross(B1) + G1).Cross(R_Arm1 * 0.5));
+        const Vec3 Ft2_dCoef(((R_Arm2 * 0.5).Cross(B2) + G2).Cross(R_Arm2 * 0.5));
+        Vec3 Ft((Ft2_dCoef - Ft1_dCoef) / (dCoef * contacts.size()));
+        Ft -= normal * Ft.Dot(normal);
+        const doublereal Ft_Norm_max = (*pSF)((V - normal * Vn_Norm).Norm()) * contact.Fn_Norm;
+        if (Ft_Norm_max < Ft.Norm()) {
+            Ft *= (Ft_Norm_max / Ft.Norm());
         }
         WM.Sub(iR + 4, iC + 4, Mat3x3(MatCrossCross, Ft * dCoef, R_Arm1));
         WM.Add(iR + 10, iC + 10, Mat3x3(MatCrossCross, Ft * dCoef, R_Arm2));
@@ -306,11 +298,11 @@ Collision::AssVec(SubVectorHandler& WorkVec, doublereal dCoef, Contact& contact)
     const Vec3 Rf2(R2 * contact.f2);
     const Vec3 V(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(Rf2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(Rf1));
     Vec3 normal = pNode2->GetXCurr() + Rf2 - pNode1->GetXCurr() - Rf1;
-    contact.depth = normal.Norm();
-    normal /= contact.depth;
-    contact.Vn_Norm = V.Dot(normal);
-    ConstitutiveLaw1DOwner::Update(contact.depth, contact.Vn_Norm);
-    contact.Fn_Norm = GetF() / contacts.size(); // Should restitution be clipped for < 0.0 ?
+    const doublereal depth = normal.Norm();
+    normal /= depth;
+    const doublereal Vn_Norm = V.Dot(normal);
+    ConstitutiveLaw1DOwner::Update(depth, Vn_Norm);
+    contact.Fn_Norm = GetF() / contacts.size();
     const Vec3 Fn(normal * contact.Fn_Norm);
     WorkVec.Add(iR + 1, Fn);
     WorkVec.Add(iR + 4, Rf1.Cross(Fn));
@@ -341,16 +333,13 @@ Collision::AssVec(SubVectorHandler& WorkVec, doublereal dCoef, Contact& contact)
         }
         const Vec3 R_Arm1(R1 * contact.Arm1);
         const Vec3 R_Arm2(pNode1->GetXCurr() + R_Arm1 - pNode2->GetXCurr());
-        const Vec3 center1 = R_Arm1 * 0.5;
-        const Vec3 center2 = R_Arm2 * 0.5;
-        const Vec3 Ft1_dCoef((center1.Cross(B1) + G1).Cross(center1));
-        const Vec3 Ft2_dCoef((center2.Cross(B2) + G2).Cross(center2));
-        const Vec3 Ft_calc((Ft2_dCoef - Ft1_dCoef) / (dCoef * contacts.size()));
-        contact.Ft = Ft_calc - normal*Ft_calc.Dot(normal);
-        const doublereal Ft_Norm = contact.Ft.Norm();
-        const doublereal Ft_max_Norm = (*pSF)((V - normal*contact.Vn_Norm).Norm()) * contact.Fn_Norm;
-        if (Ft_max_Norm < Ft_Norm) {
-            contact.Ft *= (Ft_max_Norm / Ft_Norm);
+        const Vec3 Ft1_dCoef(((R_Arm1 * 0.5).Cross(B1) + G1).Cross(R_Arm1 * 0.5));
+        const Vec3 Ft2_dCoef(((R_Arm2 * 0.5).Cross(B2) + G2).Cross(R_Arm2 * 0.5));
+        contact.Ft = (Ft2_dCoef - Ft1_dCoef) / (dCoef * contacts.size());
+        contact.Ft -= normal * contact.Ft.Dot(normal);
+        const doublereal Ft_Norm_max = (*pSF)((V - normal * Vn_Norm).Norm()) * contact.Fn_Norm;
+        if (Ft_Norm_max < contact.Ft.Norm()) {
+            contact.Ft *= (Ft_Norm_max / contact.Ft.Norm());
         }
         WorkVec.Add(iR + 1, contact.Ft);
         WorkVec.Add(iR + 4, R_Arm1.Cross(contact.Ft));
@@ -363,6 +352,10 @@ Collision::AssVec(SubVectorHandler& WorkVec, doublereal dCoef, Contact& contact)
 
 std::ostream&
 Collision::OutputAppend(std::ostream& out) const {
+    const StructNode* pStructNode1(dynamic_cast<const StructNode *>(pNode1));
+    const StructNode* pStructNode2(dynamic_cast<const StructNode *>(pNode2));
+    const Mat3x3 R1(pStructNode1->GetRCurr());
+    const Mat3x3 R2(pStructNode2->GetRCurr());
     for (std::vector<Contact>::const_iterator it = contacts.begin(); it != contacts.end(); it++) {
         out << " " << pNode1->GetLabel();
         out << " " << pNode2->GetLabel();
@@ -375,11 +368,9 @@ Collision::OutputAppend(std::ostream& out) const {
         for (int iCnt = 1; iCnt <= 3; iCnt++) {
             out << " " << it->Ft(iCnt);
         }
-        for (int iCnt = 1; iCnt <= 3; iCnt++) {
-            out << " " << it->Vt(iCnt);
-        }
         out << " " << it->Fn_Norm;
-        //ConstitutiveLaw1DOwner::Update(it->depth, it->Vn_Norm);
+        // If desired, must recalculate depth and Vn_Norm
+        //ConstitutiveLaw1DOwner::Update(depth, Vn_Norm);
         //ConstitutiveLaw1DOwner::OutputAppend(out);
     }
 }
@@ -429,7 +420,8 @@ UserDefinedElem(uLabel, pDO)
             "       (integer)<number_of_collision_objects>,\n"
             "           (CollisionObject) <label> [,...]\n"
             "\n"
-            "    <material_pair> ::= (str)<material1>, (str)<material2>, (ConstitutiveLaw<1D>)<const_law> [, friction function, (ScalarFunction)<SF>, (real)<penetration_ratio>]\n"
+            "    <material_pair> ::= (str)<material1>, (str)<material2>, (ConstitutiveLaw<1D>)<const_law>\n"
+            "       [, friction function, (ScalarFunction)<SF>, [, penetration ratio, (real)<penetration_ratio>]]\n"
             "\n\n"
             << std::endl);
 
@@ -449,15 +441,19 @@ UserDefinedElem(uLabel, pDO)
     for (int i; i < N; i++) {
         MaterialPair material_pair(std::make_pair(HP.GetValue(TypedValue::VAR_STRING).GetString(), HP.GetValue(TypedValue::VAR_STRING).GetString()));
         pCL[material_pair] = HP.GetConstLaw1D(VECLType);
+        pSF[material_pair] = NULL;
+        penetration_ratio[material_pair] = 0.0;
         if (HP.IsKeyWord("friction" "function")) {
             pSF[material_pair] = ParseScalarFunction(HP, pDM);
-            penetration_ratio[material_pair] = HP.GetReal();
+            if (HP.IsKeyWord("penetration" "ratio")) {
+                penetration_ratio[material_pair] = HP.GetReal();
+                if (material_pair.first == material_pair.second) {
+                    silent_cout("Identical material pair penetration ratio overridden to become 0.5" << std::endl);
+                }
+            }
             if (material_pair.first == material_pair.second) {
                 penetration_ratio[material_pair] = 0.5;
             }
-        } else {
-            pSF[material_pair] = NULL;
-            penetration_ratio[material_pair] = 0.0;
         }
     }
     std::set<CollisionObjectData*> all_objects;
@@ -552,23 +548,6 @@ CollisionWorld::SetValue(DataManager *pDM,
 }
 
 void
-CollisionWorld::Collide(void)
-{
-    for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
-        it != objectpair_collision_map.end(); it++) {
-        it->second->ClearContacts();
-    }
-    collision_manager->update();
-    collision_manager->collide(&objectpair_collision_map, CollisionFunction);
-}
-
-void
-CollisionWorld::AfterPredict(VectorHandler& X, VectorHandler& XP)
-{
-    Collide();
-}
-
-void
 CollisionWorld::AfterConvergence(const VectorHandler& X, const VectorHandler& XP)
 {
     //printf("Entering CollisionWorld::AfterConvergence()\n");
@@ -578,7 +557,6 @@ CollisionWorld::AfterConvergence(const VectorHandler& X, const VectorHandler& XP
         it != objectpair_collision_map.end(); it++) {
         it->second->OutputAppend(ss);
     }
-    Collide();
 }
 
 SubVectorHandler& 
@@ -589,6 +567,12 @@ CollisionWorld::AssRes(SubVectorHandler& WorkVec,
 {
     //printf("Entering CollisionWorld::AssRes()\n");
     DEBUGCOUT("Entering CollisionWorld::AssRes()" << std::endl);
+    for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
+        it != objectpair_collision_map.end(); it++) {
+        it->second->ClearContacts();
+    }
+    collision_manager->update();
+    collision_manager->collide(&objectpair_collision_map, CollisionFunction);
     WorkVec.ResizeReset(iNumRows);
     for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
@@ -727,9 +711,9 @@ UserDefinedElem(uLabel, pDO)
             "        <shape> [,margin, (real)<margin>]\n"
             "\n"
             "   <shape> ::= {\n"
-            "       Box, (real)<x_half_extent>, (real)<y_half_extent>, (real)<z_half_extent>\n"
-            "       | Capsule, (real)<radius>, (real)<height>\n"
-            "       | Cone, (real)<radius>, (real)<height>\n"
+//            "       Box, (real)<x_half_extent>, (real)<y_half_extent>, (real)<z_half_extent>\n"
+//            "       | Capsule, (real)<radius>, (real)<height>\n"
+//            "       | Cone, (real)<radius>, (real)<height>\n"
             "       | Sphere, (real)<radius>\n"
             "       | Plane\n"
             "   }\n\n"
@@ -751,7 +735,7 @@ UserDefinedElem(uLabel, pDO)
     fcl::Vec3f translate(x[0], x[1], x[2]);
     fcl::Matrix3f rotate(r.dGet(1,1),r.dGet(1,2),r.dGet(1,3),r.dGet(2,1),r.dGet(2,2),r.dGet(2,3),r.dGet(3,1),r.dGet(3,2),r.dGet(3,3));
     const TypedValue material(HP.GetValue(TypedValue::VAR_STRING));
-    if (HP.IsKeyWord("Box")) {
+    /*if (HP.IsKeyWord("Box")) {
         const float x(HP.GetReal());
         const float y(HP.GetReal());
         const float z(HP.GetReal());
@@ -767,7 +751,7 @@ UserDefinedElem(uLabel, pDO)
         const float height(HP.GetReal());
         CollisionGeometryPtr_t fcl_shape(new fcl::Cone(radius, height));
         ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
-    } else if (HP.IsKeyWord("Sphere")) {
+    } else */if (HP.IsKeyWord("Sphere")) {
         const float radius(HP.GetReal());
         CollisionGeometryPtr_t fcl_shape(new fcl::Sphere(radius));
         ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
@@ -802,31 +786,6 @@ CollisionObject::WorkSpaceDim(integer* piNumRows, integer* piNumCols) const
     *piNumCols = 0;
 }
 
-void
-CollisionObject::Transform(void)
-{
-    if (ob->getNodeType() != fcl::GEOM_PLANE) {
-        Vec3 x(pNode->GetXCurr() + pNode->GetRCurr() * f);
-        Mat3x3 r(pNode->GetRCurr() * R);
-        ob->setTransform(
-            fcl::Matrix3f(r.dGet(1,1),r.dGet(1,2),r.dGet(1,3),r.dGet(2,1),r.dGet(2,2),r.dGet(2,3),r.dGet(3,1),r.dGet(3,2),r.dGet(3,3)),
-            fcl::Vec3f(x[0], x[1], x[2]));
-        ob->computeAABB();
-    }    
-}
-
-void
-CollisionObject::AfterPredict(VectorHandler& X, VectorHandler& XP)
-{
-    Transform();
-}
-
-void
-CollisionObject::AfterConvergence(const VectorHandler& X, const VectorHandler& XP)
-{
-    Transform();
-}
-
 VariableSubMatrixHandler& 
 CollisionObject::AssJac(VariableSubMatrixHandler& WorkMat,
     doublereal dCoef, 
@@ -846,6 +805,14 @@ CollisionObject::AssRes(SubVectorHandler& WorkVec,
 {
     DEBUGCOUT("Entering CollisionObject::AssRes()" << std::endl);
     WorkVec.ResizeReset(0);
+    if (ob->getNodeType() != fcl::GEOM_PLANE) {
+        Vec3 x(pNode->GetXCurr() + pNode->GetRCurr() * f);
+        Mat3x3 r(pNode->GetRCurr() * R);
+        ob->setTransform(
+            fcl::Matrix3f(r.dGet(1,1),r.dGet(1,2),r.dGet(1,3),r.dGet(2,1),r.dGet(2,2),r.dGet(2,3),r.dGet(3,1),r.dGet(3,2),r.dGet(3,3)),
+            fcl::Vec3f(x[0], x[1], x[2]));
+        ob->computeAABB();
+    }    
     return WorkVec;
 }
 
