@@ -1,6 +1,6 @@
 module-collision simulates impacts having any 1D Constitutive, with a dynamic and static friction coefficient as any function of velocity, for each of N-pairs of collision bodies within a collision world. The module is available at https://github.com/gdbaldw/module-collision and requires the fork of the Flexible Collision Library available at https://github.com/gdbaldw/fcl. BlenderAndMBDyn is recommended, available at https://github.com/gdbaldw/BlenderAndMBDyn.
 
-As of 7 JAN 2016, only Sphere and Plane shapes are tested. All other shapes must be vetted, and will require edits to this fork of fcl.
+As of 7 JAN 2016, only Sphere and Plane shapes are tested. A demonstration video is available at https://youtu.be/nigfe1SM4E4 . All other fcl shapes must be vetted, and will likely require edits to this fork of fcl.
 
 For both Debian and Ubuntu, the following configuration line works:
 
