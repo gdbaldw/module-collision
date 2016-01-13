@@ -143,15 +143,15 @@ Collision::ClearAndSetTangents(void)
         const doublereal depth = normal.Norm();
         if (std::numeric_limits<doublereal>::epsilon() < depth) {
             normal /= depth;
-        } else {
-            normal = Zero3;
-        }
-        const Vec3 R_Arm1(R1 * it->Arm1);
-        const Vec3 R_Arm2(pNode1->GetXCurr() + R_Arm1 - pNode2->GetXCurr());
-        Vec3 Vt(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(R_Arm2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(R_Arm1));
-        Vt -= normal * Vt.Dot(normal);
-        if (std::numeric_limits<doublereal>::epsilon() < Vt.Norm()) {
-            tangents.push_back(Vt / Vt.Norm());
+            const Vec3 R_Arm1(R1 * it->Arm1);
+            const Vec3 R_Arm2(pNode1->GetXCurr() + R_Arm1 - pNode2->GetXCurr());
+            Vec3 Vt(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(R_Arm2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(R_Arm1));
+            Vt -= normal * Vt.Dot(normal);
+            if (std::numeric_limits<doublereal>::epsilon() < Vt.Norm()) {
+                tangents.push_back(Vt / Vt.Norm());
+            } else {
+                tangents.push_back(Zero3);
+            }
         } else {
             tangents.push_back(Zero3);
         }
@@ -287,7 +287,6 @@ Collision::AssMat(FullSubMatrixHandler& WM, doublereal dCoef, Contact& contact)
         WM.Sub(iR + 4, iC + 4, Mat3x3(MatCrossCross, Ft * dCoef, R_Arm1));
         WM.Add(iR + 10, iC + 10, Mat3x3(MatCrossCross, Ft * dCoef, R_Arm2));
     }
-
 }
 
 SubVectorHandler& 
