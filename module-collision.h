@@ -34,24 +34,18 @@
 #ifndef MODULE_COLLISION_H
 #define MODULE_COLLISION_H
 
-#include <boost/foreach.hpp>
-#include <fcl/shape/geometric_shapes.h>
-#include <fcl/shape/geometric_shapes_utility.h>
-#include <fcl/narrowphase/narrowphase.h>
-#include <fcl/broadphase/broadphase.h>
-#include <fcl/collision.h>
+#include "intersect.h"
 
 class Contact {
 public:
-    Contact(fcl::Contact contact, const StructDispNode* pNode1, const StructDispNode* pNode2, doublereal penetration_ratio);
+    Contact(std::pair<fcl::Vec3f, fcl::Vec3f> pt_pair, const StructDispNode* pNode1, const StructDispNode* pNode2, doublereal penetration_ratio);
     ~Contact(void);
-	const StructDispNode* pNode1;
-	const StructDispNode* pNode2;
     Vec3 Arm1;
     Vec3 f1;
     Vec3 f2;
     Vec3 Ft;
     doublereal Fn_Norm;
+    Vec3 tangent;
 };
 
 class CollisionObjectData {
@@ -64,11 +58,12 @@ public:
 };
 
 class Collision :
-public ConstitutiveLaw1DOwner  {
+public ConstitutiveLaw1DOwner {
 private:
-    typedef RodWithOffset super;
 	const StructDispNode* pNode1;
 	const StructDispNode* pNode2;
+    fcl::CollisionObject* pObject1;
+    fcl::CollisionObject* pObject2;
     const BasicScalarFunction* pSF;
     const doublereal penetration_ratio;
     integer iR;
@@ -79,12 +74,15 @@ private:
     std::vector<Contact> contacts;
     void AssMat(FullSubMatrixHandler& WM, doublereal dCoef, Contact& contact);
     void AssVec(SubVectorHandler& WorkVec, doublereal dCoef, Contact& contact);
+    FCL::Func func;
+    std::vector<Vec3> tangents;
 public:
-    Collision(const DofOwner* pDO, 
+    Collision(FCL::Func func,
         const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSFTmp, const doublereal penetration_ratio,
-        const StructNode* pN1, const StructNode* pN2, integer* iRow, integer* iCol);
-    void PutContacts(std::vector<fcl::Contact>& contacts_, bool swapped);
+        const CollisionObjectData* pD1, const CollisionObjectData* pD2, integer* iRow, integer* iCol);
+    void Intersect(void);
     void ClearContacts(void);
+    void ClearAndSetTangents(void);
     std::ostream& OutputAppend(std::ostream& out) const;
 
     VariableSubMatrixHandler&
@@ -100,17 +98,16 @@ public:
         const VectorHandler& XPrimeCurr);
 };
 
-typedef std::pair<fcl::CollisionObject*, fcl::CollisionObject*> ObjectPair;
-
 class CollisionWorld
 : virtual public Elem, public UserDefinedElem {
 private:
     integer iNumRows;
     integer iNumCols;
     fcl::BroadPhaseCollisionManager* collision_manager;
-    std::map<const ObjectPair, Collision*> objectpair_collision_map;
+    std::map<const FCL::ObjectPair, Collision*> objectpair_collision_map;
     std::set<const Node*> nodes;
     std::ostringstream ss;
+    FCL::FuncMatrix func_matrix;
 public:
     CollisionWorld(unsigned uLabel, const DofOwner *pDO,
         DataManager* pDM, MBDynParser& HP);
@@ -160,7 +157,6 @@ private:
     const StructNode* pNode;
     Vec3 f;
     Mat3x3 R;
-    typedef boost::shared_ptr <fcl::CollisionGeometry> CollisionGeometryPtr_t;
     fcl::CollisionObject* ob;
 public:
     CollisionObject(unsigned uLabel, const DofOwner *pDO,

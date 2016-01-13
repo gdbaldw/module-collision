@@ -43,15 +43,16 @@
 #include <limits>
 #include "module-collision.h"
 
-Contact::Contact(fcl::Contact contact, const StructDispNode* pNode1, const StructDispNode* pNode2, doublereal penetration_ratio)
-: pNode1(pNode1), pNode2(pNode2),
-Ft(Zero3), Fn_Norm(0.0)
+Contact::Contact(std::pair<fcl::Vec3f, fcl::Vec3f> pt_pair, const StructDispNode* pNode1, const StructDispNode* pNode2, doublereal penetration_ratio)
+: Ft(Zero3), Fn_Norm(0.0), tangent(Zero3)
 {
-    const Vec3 normal(-Vec3(contact.normal[0], contact.normal[1], contact.normal[2])); // towards Node1
-    const Vec3 pos(Vec3(contact.pos[0], contact.pos[1], contact.pos[2]));
-    f1 = dynamic_cast<const StructNode *>(pNode1)->GetRCurr().Transpose() * (pos - normal * 0.5 * contact.penetration_depth - pNode1->GetXCurr());
-    f2 = dynamic_cast<const StructNode *>(pNode2)->GetRCurr().Transpose() * (pos + normal * 0.5 * contact.penetration_depth - pNode2->GetXCurr());
-    Arm1 = dynamic_cast<const StructNode *>(pNode1)->GetRCurr().Transpose() * (pos - normal * (0.5 - penetration_ratio) * contact.penetration_depth - pNode1->GetXCurr());
+    Vec3 pt1(pt_pair.first[0], pt_pair.first[1], pt_pair.first[2]);
+    Vec3 pt2(pt_pair.second[0], pt_pair.second[1], pt_pair.second[2]);
+    Mat3x3 R1(dynamic_cast<const StructNode *>(pNode1)->GetRCurr());
+    Mat3x3 R2(dynamic_cast<const StructNode *>(pNode2)->GetRCurr());
+    f1 = R1.Transpose() * (pt1 - pNode1->GetXCurr());
+    f2 = R2.Transpose() * (pt2 - pNode2->GetXCurr());
+    Arm1 = R1.Transpose() * (pt1 * penetration_ratio + pt2 * (1.0 - penetration_ratio) - pNode1->GetXCurr());
 }
 
 Contact::~Contact(void)
@@ -75,16 +76,19 @@ CollisionObjectData::~CollisionObjectData(void)
 
 std::map<const unsigned, CollisionObjectData*> collision_object_data;
 
-Collision::Collision(const DofOwner* pDO, 
-    const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSF, const doublereal penetration_ratio,
-    const StructNode* pN1, const StructNode* pN2, integer* piRow, integer* piCol)
-: ConstitutiveLaw1DOwner(pCL),
-pNode1(pN1),
-pNode2(pN2),
-iNumRowsNode(6),
-iNumColsNode(6),
+Collision::Collision(FCL::Func func,
+    const ConstitutiveLaw1D* pCL, const BasicScalarFunction* pSF, doublereal penetration_ratio,
+    const CollisionObjectData* pD1, const CollisionObjectData* pD2, integer* piRow, integer* piCol)
+: func(func),
+ConstitutiveLaw1DOwner(pCL),
 pSF(pSF),
-penetration_ratio(penetration_ratio)
+penetration_ratio(penetration_ratio),
+pNode1(pD1->pNode),
+pNode2(pD2->pNode),
+pObject1(pD1->pObject),
+pObject2(pD2->pObject),
+iNumRowsNode(6),
+iNumColsNode(6)
 {
     iR = *piRow;
     iC = *piCol;
@@ -99,14 +103,57 @@ Collision::ClearContacts(void)
 }
 
 void
-Collision::PutContacts(std::vector<fcl::Contact>& contacts_, bool swapped)
+Collision::Intersect(void)
 {
-    for (std::vector<fcl::Contact>::iterator it = contacts_.begin(); it != contacts_.end(); it++) {
-        if (std::numeric_limits<doublereal>::epsilon() < (*it).penetration_depth) {
-            if (swapped) {
-                (*it).normal *= -1.0;
-            }
-            contacts.push_back(Contact(*it, pNode1, pNode2, penetration_ratio));
+    FCL::Vec3f_pairs pt_pairs;
+    func(pObject1, pObject2, pt_pairs);
+    for (std::vector<std::pair<fcl::Vec3f, fcl::Vec3f> >::iterator it = pt_pairs.begin();
+        it != pt_pairs.end(); it++) {
+        contacts.push_back(Contact(*it, pNode1, pNode2, penetration_ratio));
+        /* For testing 
+        Vec3 pt1(it->first[0], it->first[1], it->first[2]);
+        Vec3 pt2(it->second[0], it->second[1], it->second[2]);
+        Mat3x3 R1(dynamic_cast<const StructNode *>(pNode1)->GetRCurr());
+        Mat3x3 R2(dynamic_cast<const StructNode *>(pNode2)->GetRCurr());
+        Vec3 f1 = R1.Transpose() * (pt1 - pNode1->GetXCurr());
+        Vec3 f2 = R2.Transpose() * (pt2 - pNode2->GetXCurr());
+        printf("(%f %f %f), (%f %f %f)\n", it->first[0], it->first[1], it->first[2], it->second[0], it->second[1], it->second[2]);
+        printf("(%f %f %f), (%f %f %f)\n", f1(1), f1(2), f1(3), f2(1), f2(2), f2(3));
+        */
+    }
+    if (tangents.size() == contacts.size()) {
+        for (int i = 0; i < tangents.size(); i++) {
+            contacts[i].tangent = tangents[i];
+        }
+    }
+}
+
+void
+Collision::ClearAndSetTangents(void)
+{
+    tangents.clear();
+    const StructNode* pStructNode1(dynamic_cast<const StructNode *>(pNode1));
+    const StructNode* pStructNode2(dynamic_cast<const StructNode *>(pNode2));
+    const Mat3x3 R1(pStructNode1->GetRCurr());
+    const Mat3x3 R2(pStructNode2->GetRCurr());
+    for (std::vector<Contact>::iterator it = contacts.begin(); it != contacts.end(); it++) {
+        const Vec3 Rf1(R1 * it->f1);
+        const Vec3 Rf2(R2 * it->f2);
+        Vec3 normal = pNode2->GetXCurr() + Rf2 - pNode1->GetXCurr() - Rf1;
+        const doublereal depth = normal.Norm();
+        if (std::numeric_limits<doublereal>::epsilon() < depth) {
+            normal /= depth;
+        } else {
+            normal = Zero3;
+        }
+        const Vec3 R_Arm1(R1 * it->Arm1);
+        const Vec3 R_Arm2(pNode1->GetXCurr() + R_Arm1 - pNode2->GetXCurr());
+        Vec3 Vt(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(R_Arm2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(R_Arm1));
+        Vt -= normal * Vt.Dot(normal);
+        if (std::numeric_limits<doublereal>::epsilon() < Vt.Norm()) {
+            tangents.push_back(Vt / Vt.Norm());
+        } else {
+            tangents.push_back(Zero3);
         }
     }
 }
@@ -117,7 +164,6 @@ Collision::AssJac(VariableSubMatrixHandler& WorkMat,
     const VectorHandler& XCurr,
     const VectorHandler& XPrimeCurr)
 {
-    //printf("Entering Collision::AssJac()\n");
     DEBUGCOUT("Entering Collision::AssJac()" << std::endl);
     FullSubMatrixHandler& WM = WorkMat.SetFull();
     const integer iNode1FirstPosIndex = pNode1->iGetFirstPositionIndex();
@@ -152,7 +198,14 @@ Collision::AssMat(FullSubMatrixHandler& WM, doublereal dCoef, Contact& contact)
     const Vec3 V(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(Rf2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(Rf1));
     Vec3 normal = pNode2->GetXCurr() + Rf2 - pNode1->GetXCurr() - Rf1;
     const doublereal depth = normal.Norm();
-    normal /= normal.Norm();
+    const doublereal V_Norm = V.Norm();
+    if (std::numeric_limits<doublereal>::epsilon() < depth) {
+        normal /= depth;
+    } else if (std::numeric_limits<doublereal>::epsilon() < V_Norm) {
+        normal = V / V_Norm;
+    } else {
+        return;
+    }
     const doublereal Vn_Norm = V.Dot(normal);
     ConstitutiveLaw1DOwner::Update(depth, Vn_Norm);
     doublereal Fn_Norm = GetF() / contacts.size();
@@ -227,36 +280,10 @@ Collision::AssMat(FullSubMatrixHandler& WM, doublereal dCoef, Contact& contact)
 
     /* Resistance */
     if (pSF != NULL) {
-        const DynamicStructNode* pDynamicStructNode1(dynamic_cast<const DynamicStructNode *>(pNode1));
-        const DynamicStructNode* pDynamicStructNode2(dynamic_cast<const DynamicStructNode *>(pNode2));
-        const DynamicStructDispNode* pDynamicStructDispNode1(dynamic_cast<const DynamicStructDispNode *>(pNode1));
-        const DynamicStructDispNode* pDynamicStructDispNode2(dynamic_cast<const DynamicStructDispNode *>(pNode2));
-        Vec3 G1(Zero3);
-        Vec3 B1(Zero3);
-        Vec3 G2(Zero3);
-        Vec3 B2(Zero3);
-        if (pDynamicStructNode1 != 0) {
-            G1 = pDynamicStructNode1->GetGCurr();
-        }
-        if (pDynamicStructDispNode1 != 0) {
-            B1 = pDynamicStructDispNode1->GetBCurr();
-        }
-        if (pDynamicStructNode2 != 0) {
-            G2 = pDynamicStructNode2->GetGCurr();
-        }
-        if (pDynamicStructDispNode2 != 0) {
-            B2 = pDynamicStructDispNode2->GetBCurr();
-        }
         const Vec3 R_Arm1(R1 * contact.Arm1);
         const Vec3 R_Arm2(pNode1->GetXCurr() + R_Arm1 - pNode2->GetXCurr());
-        const Vec3 Ft1_dCoef(((R_Arm1 * 0.5).Cross(B1) + G1).Cross(R_Arm1 * 0.5));
-        const Vec3 Ft2_dCoef(((R_Arm2 * 0.5).Cross(B2) + G2).Cross(R_Arm2 * 0.5));
-        Vec3 Ft((Ft2_dCoef - Ft1_dCoef) / (dCoef * contacts.size()));
-        Ft -= normal * Ft.Dot(normal);
         const doublereal Ft_Norm_max = (*pSF)((V - normal * Vn_Norm).Norm()) * contact.Fn_Norm;
-        if (Ft_Norm_max < Ft.Norm()) {
-            Ft *= (Ft_Norm_max / Ft.Norm());
-        }
+        Vec3 Ft = contact.tangent * Ft_Norm_max;
         WM.Sub(iR + 4, iC + 4, Mat3x3(MatCrossCross, Ft * dCoef, R_Arm1));
         WM.Add(iR + 10, iC + 10, Mat3x3(MatCrossCross, Ft * dCoef, R_Arm2));
     }
@@ -269,7 +296,6 @@ Collision::AssRes(SubVectorHandler& WorkVec,
     const VectorHandler& XCurr, 
     const VectorHandler& XPrimeCurr)
 {
-    //printf("Entering Collision::AssRes()\n");
     DEBUGCOUT("Entering Collision::AssRes()" << std::endl);
     integer iNode1FirstMomIndex = pNode1->iGetFirstMomentumIndex();
     integer iNode2FirstMomIndex = pNode2->iGetFirstMomentumIndex();
@@ -299,7 +325,14 @@ Collision::AssVec(SubVectorHandler& WorkVec, doublereal dCoef, Contact& contact)
     const Vec3 V(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(Rf2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(Rf1));
     Vec3 normal = pNode2->GetXCurr() + Rf2 - pNode1->GetXCurr() - Rf1;
     const doublereal depth = normal.Norm();
-    normal /= depth;
+    const doublereal V_Norm = V.Norm();
+    if (std::numeric_limits<doublereal>::epsilon() < depth) {
+        normal /= depth;
+    } else if (std::numeric_limits<doublereal>::epsilon() < V_Norm) {
+        normal = V / V_Norm;
+    } else {
+        return;
+    }
     const doublereal Vn_Norm = V.Dot(normal);
     ConstitutiveLaw1DOwner::Update(depth, Vn_Norm);
     contact.Fn_Norm = GetF() / contacts.size();
@@ -311,36 +344,10 @@ Collision::AssVec(SubVectorHandler& WorkVec, doublereal dCoef, Contact& contact)
 
     /* Resistance */
     if (pSF != NULL) {
-        const DynamicStructNode* pDynamicStructNode1(dynamic_cast<const DynamicStructNode *>(pNode1));
-        const DynamicStructNode* pDynamicStructNode2(dynamic_cast<const DynamicStructNode *>(pNode2));
-        const DynamicStructDispNode* pDynamicStructDispNode1(dynamic_cast<const DynamicStructDispNode *>(pNode1));
-        const DynamicStructDispNode* pDynamicStructDispNode2(dynamic_cast<const DynamicStructDispNode *>(pNode2));
-        Vec3 G1(Zero3);
-        Vec3 B1(Zero3);
-        Vec3 G2(Zero3);
-        Vec3 B2(Zero3);
-        if (pDynamicStructNode1 != 0) {
-            G1 = pDynamicStructNode1->GetGCurr();
-        }
-        if (pDynamicStructDispNode1 != 0) {
-            B1 = pDynamicStructDispNode1->GetBCurr();
-        }
-        if (pDynamicStructNode2 != 0) {
-            G2 = pDynamicStructNode2->GetGCurr();
-        }
-        if (pDynamicStructDispNode2 != 0) {
-            B2 = pDynamicStructDispNode2->GetBCurr();
-        }
         const Vec3 R_Arm1(R1 * contact.Arm1);
         const Vec3 R_Arm2(pNode1->GetXCurr() + R_Arm1 - pNode2->GetXCurr());
-        const Vec3 Ft1_dCoef(((R_Arm1 * 0.5).Cross(B1) + G1).Cross(R_Arm1 * 0.5));
-        const Vec3 Ft2_dCoef(((R_Arm2 * 0.5).Cross(B2) + G2).Cross(R_Arm2 * 0.5));
-        contact.Ft = (Ft2_dCoef - Ft1_dCoef) / (dCoef * contacts.size());
-        contact.Ft -= normal * contact.Ft.Dot(normal);
         const doublereal Ft_Norm_max = (*pSF)((V - normal * Vn_Norm).Norm()) * contact.Fn_Norm;
-        if (Ft_Norm_max < contact.Ft.Norm()) {
-            contact.Ft *= (Ft_Norm_max / contact.Ft.Norm());
-        }
+        contact.Ft = contact.tangent * Ft_Norm_max;
         WorkVec.Add(iR + 1, contact.Ft);
         WorkVec.Add(iR + 4, R_Arm1.Cross(contact.Ft));
         WorkVec.Sub(iR + 7, contact.Ft);
@@ -352,10 +359,6 @@ Collision::AssVec(SubVectorHandler& WorkVec, doublereal dCoef, Contact& contact)
 
 std::ostream&
 Collision::OutputAppend(std::ostream& out) const {
-    const StructNode* pStructNode1(dynamic_cast<const StructNode *>(pNode1));
-    const StructNode* pStructNode2(dynamic_cast<const StructNode *>(pNode2));
-    const Mat3x3 R1(pStructNode1->GetRCurr());
-    const Mat3x3 R2(pStructNode2->GetRCurr());
     for (std::vector<Contact>::const_iterator it = contacts.begin(); it != contacts.end(); it++) {
         out << " " << pNode1->GetLabel();
         out << " " << pNode2->GetLabel();
@@ -377,23 +380,16 @@ Collision::OutputAppend(std::ostream& out) const {
 
 bool CollisionFunction(fcl::CollisionObject* o1, fcl::CollisionObject* o2, void* cdata_)
 {
-    std::map<const ObjectPair, Collision*> objectpair_collision_map(
-        *(static_cast<std::map<const ObjectPair, Collision*>*>(cdata_)));
-    ObjectPair object_pair(o1, o2);
-    bool swapped = false;
+    std::map<const FCL::ObjectPair, Collision*> objectpair_collision_map(
+        *(static_cast<std::map<const FCL::ObjectPair, Collision*>*>(cdata_)));
+    FCL::ObjectPair object_pair(o1, o2);
     if (objectpair_collision_map.count(object_pair) == 0) {
         std::swap(object_pair.first, object_pair.second);
-        swapped = true;
         if (objectpair_collision_map.count(object_pair) == 0) {
             return false;
         }
     }
-    const fcl::CollisionRequest request(std::numeric_limits<int>::max(), true);
-    fcl::CollisionResult result;
-    fcl::collide(o1, o2, request, result);
-    std::vector<fcl::Contact> contacts;
-    result.getContacts(contacts);
-    objectpair_collision_map[object_pair]->PutContacts(contacts, swapped);
+    objectpair_collision_map[object_pair]->Intersect();
     return false;
 }
 
@@ -406,7 +402,6 @@ CollisionWorld::CollisionWorld(
 : Elem(uLabel, flag(0)),
 UserDefinedElem(uLabel, pDO)
 {
-    printf("Entering CollisionWorld::CollisionWorld()\n");
     if (HP.IsKeyWord("help")) {
         silent_cout(
             "\n"
@@ -457,6 +452,7 @@ UserDefinedElem(uLabel, pDO)
             }
         }
     }
+    func_matrix = FCL::FuncMatrix();
     std::set<CollisionObjectData*> all_objects;
     std::set<CollisionObjectData*> objects;
     iNumRows = 0;
@@ -467,17 +463,23 @@ UserDefinedElem(uLabel, pDO)
         CollisionObjectData* ob_data(collision_object_data[HP.GetInt()]);
         for (std::set<CollisionObjectData*>::iterator it = all_objects.begin();
             it != all_objects.end(); it++) {
-            MaterialPair material_pair(std::make_pair(
-                ob_data->material, (*it)->material));
+            MaterialPair material_pair(std::make_pair(ob_data->material, (*it)->material));
             if (pCL.find(material_pair) == pCL.end()) {
                 std::swap(material_pair.first, material_pair.second);
             }
             if (pCL.find(material_pair) != pCL.end() && ob_data->pNode != (*it)->pNode) {
-                ObjectPair object_pair(std::make_pair(ob_data->pObject, (*it)->pObject));
-                objectpair_collision_map[object_pair] = new Collision(
-                    pDO, pCL[material_pair], pSF[material_pair], penetration_ratio[material_pair],
-                    ob_data->pNode, (*it)->pNode,
-                    &iNumRows, &iNumCols);
+                FCL::ObjectPair object_pair(std::make_pair(ob_data->pObject, (*it)->pObject));
+                FCL::Func func(func_matrix.GetFunc(object_pair));
+                if (func) {
+                    objectpair_collision_map[object_pair] = new Collision(func,
+                        pCL[material_pair], pSF[material_pair], penetration_ratio[material_pair],
+                        ob_data, *it, &iNumRows, &iNumCols);
+                } else {
+                    std::swap(object_pair.first, object_pair.second);
+                    objectpair_collision_map[object_pair] = new Collision(func_matrix.GetFunc(object_pair),
+                        pCL[material_pair], pSF[material_pair], 1.0 - penetration_ratio[material_pair],
+                        *it, ob_data, &iNumRows, &iNumCols);
+                }
                 objects.insert(ob_data);
                 objects.insert(*it);
             }
@@ -491,8 +493,6 @@ UserDefinedElem(uLabel, pDO)
         collision_manager->registerObject((*it)->pObject);
     }
     collision_manager->setup();
-    fcl::GJKSolver_libccd::collision_tolerance = 1e-18;
-    fcl::GJKSolver_libccd::max_collision_iterations = 5000;
     SetOutputFlag(pDM->fReadOutput(HP, Elem::LOADABLE));
 }
 
@@ -504,7 +504,6 @@ CollisionWorld::~CollisionWorld(void)
 void
 CollisionWorld::WorkSpaceDim(integer* piNumRows, integer* piNumCols) const
 {
-    //printf("Entering CollisionWorld::WorkSpaceDim()\n");
     *piNumRows = iNumRows;
     *piNumCols = iNumCols;
 }
@@ -512,14 +511,12 @@ CollisionWorld::WorkSpaceDim(integer* piNumRows, integer* piNumCols) const
 int
 CollisionWorld::iGetNumConnectedNodes(void) const
 {
-    printf("Entering CollisionWorld::iGetNumConnectedNodes()\n");
     return nodes.size();
 }
 
 void
 CollisionWorld::GetConnectedNodes(std::vector<const Node*>& connectedNodes) const
 {
-    printf("Entering CollisionWorld::GetConnectedNodes()\n");
     connectedNodes.resize(iGetNumConnectedNodes());
     integer i(0);
     for (std::set<const Node*>::const_iterator it = nodes.begin(); it != nodes.end(); it++) {
@@ -530,7 +527,6 @@ CollisionWorld::GetConnectedNodes(std::vector<const Node*>& connectedNodes) cons
 void
 CollisionWorld::Output(OutputHandler& OH) const
 {
-    //printf("Entering CollisionWorld::Output()\n");
     if (fToBeOutput()) {
         if ( OH.UseText(OutputHandler::LOADABLE) ) {
             std::ostream& os = OH.Loadable();
@@ -546,18 +542,18 @@ CollisionWorld::SetValue(DataManager *pDM,
     VectorHandler& X, VectorHandler& XP,
     SimulationEntity::Hints *ph)
 {
-    //printf("Entering CollisionWorld::SetValue()\n");
+    NO_OP;
 }
 
 void
 CollisionWorld::AfterConvergence(const VectorHandler& X, const VectorHandler& XP)
 {
-    //printf("Entering CollisionWorld::AfterConvergence()\n");
     ss.str("");
     ss.clear();
-    for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
+    for (std::map<FCL::ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
         it->second->OutputAppend(ss);
+        it->second->ClearAndSetTangents();
     }
 }
 
@@ -567,16 +563,15 @@ CollisionWorld::AssRes(SubVectorHandler& WorkVec,
     const VectorHandler& XCurr, 
     const VectorHandler& XPrimeCurr)
 {
-    //printf("Entering CollisionWorld::AssRes()\n");
     DEBUGCOUT("Entering CollisionWorld::AssRes()" << std::endl);
-    for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
+    for (std::map<FCL::ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
         it->second->ClearContacts();
     }
     collision_manager->update();
     collision_manager->collide(&objectpair_collision_map, CollisionFunction);
     WorkVec.ResizeReset(iNumRows);
-    for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
+    for (std::map<FCL::ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
         it->second->AssRes(WorkVec, dCoef, XCurr, XPrimeCurr);
     }
@@ -589,11 +584,10 @@ CollisionWorld::AssJac(VariableSubMatrixHandler& WorkMat,
     const VectorHandler& XCurr,
     const VectorHandler& XPrimeCurr)
 {
-    //printf("Entering CollisionWorld::AssJac()\n");
     DEBUGCOUT("Entering CollisionWorld::AssJac()" << std::endl);
     FullSubMatrixHandler& WM = WorkMat.SetFull();
     WM.ResizeReset(iNumRows, iNumCols);
-    for (std::map<ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
+    for (std::map<FCL::ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
         it != objectpair_collision_map.end(); it++) {
         it->second->AssJac(WorkMat, dCoef, XCurr, XPrimeCurr);
     }
@@ -603,7 +597,6 @@ CollisionWorld::AssJac(VariableSubMatrixHandler& WorkMat,
 unsigned int
 CollisionWorld::iGetNumPrivData(void) const
 {
-    printf("Entering CollisionWorld::iGetNumPrivData()\n");
     // return number of private data
     return 0;
 }
@@ -611,7 +604,6 @@ CollisionWorld::iGetNumPrivData(void) const
 unsigned int
 CollisionWorld::iGetPrivDataIdx(const char *s) const
 {
-    printf("Entering CollisionWorld::iGetPrivDataIdx()\n");
     // parse string and compute index of requested private data
 
     // shouldn't get here until private data are defined
@@ -621,7 +613,6 @@ CollisionWorld::iGetPrivDataIdx(const char *s) const
 doublereal
 CollisionWorld::dGetPrivData(unsigned int i) const
 {
-    printf("Entering CollisionWorld::dGetPrivData()\n");
     ASSERT(0 < i && i <= iGetNumPrivData());
 
     switch (i) {
@@ -644,7 +635,6 @@ CollisionWorld::Restart(std::ostream& out) const
 unsigned int
 CollisionWorld::iGetInitialNumDof(void) const
 {
-    printf("Entering CollisionWorld::iGetInitialNumDof()\n");
     return 0;
 }
 
@@ -653,7 +643,6 @@ CollisionWorld::InitialWorkSpaceDim(
     integer* piNumRows,
     integer* piNumCols) const
 {
-    printf("Entering CollisionWorld::InitialWorkSpaceDim()\n");
     *piNumRows = 0;
     *piNumCols = 0;
 }
@@ -665,7 +654,6 @@ CollisionWorld::InitialAssJac(
 {
     // should not be called, since initial workspace is empty
     ASSERT(0);
-    //printf("Entering CollisionWorld::InitialAssJac()\n");
     DEBUGCOUT("Entering CollisionWorld::InitialAssJac()" << std::endl);
 
     WorkMat.SetNullMatrix();
@@ -680,7 +668,6 @@ CollisionWorld::InitialAssRes(
 {
     // should not be called, since initial workspace is empty
     ASSERT(0);
-    //printf("Entering CollisionWorld::InitialAssRes()\n");
     DEBUGCOUT("Entering CollisionWorld::InitialAssRes()" << std::endl);
 
     WorkVec.ResizeReset(0);
@@ -741,24 +728,24 @@ UserDefinedElem(uLabel, pDO)
         const float x(HP.GetReal());
         const float y(HP.GetReal());
         const float z(HP.GetReal());
-        CollisionGeometryPtr_t fcl_shape(new fcl::Box(2 * x, 2 * y, 2 * z));
+        FCL::CollisionGeometryPtr_t fcl_shape(new fcl::Box(2 * x, 2 * y, 2 * z));
         ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
     } else if (HP.IsKeyWord("capsule")) {
         const float radius(HP.GetReal());
         const float height(HP.GetReal());
-        CollisionGeometryPtr_t fcl_shape(new fcl::Capsule(radius, height));
+        FCL::CollisionGeometryPtr_t fcl_shape(new fcl::Capsule(radius, height));
         ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
     } else if (HP.IsKeyWord("cone")) {
         const float radius(HP.GetReal());
         const float height(HP.GetReal());
-        CollisionGeometryPtr_t fcl_shape(new fcl::Cone(radius, height));
+        FCL::CollisionGeometryPtr_t fcl_shape(new fcl::Cone(radius, height));
         ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
     } else */if (HP.IsKeyWord("plane")) {
-        CollisionGeometryPtr_t fcl_shape(new fcl::Plane(0., 0., 1., 0.));
+        FCL::CollisionGeometryPtr_t fcl_shape(new fcl::Plane(0., 0., 1., 0.));
         ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
     } else if (HP.IsKeyWord("sphere")) {
         const float radius(HP.GetReal());
-        CollisionGeometryPtr_t fcl_shape(new fcl::Sphere(radius));
+        FCL::CollisionGeometryPtr_t fcl_shape(new fcl::Sphere(radius));
         ob = new fcl::CollisionObject(fcl_shape, rotate, translate);
     } else {
         silent_cerr("collision object(" << GetLabel() << "): a valid shape is expected at line " << HP.GetLineData() << std::endl);
