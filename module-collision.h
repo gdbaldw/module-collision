@@ -123,6 +123,9 @@ public:
     unsigned int iGetInitialNumDof(void) const;
 
     void
+    AfterPredict(VectorHandler& X, VectorHandler& XP);
+    
+    void
     AfterConvergence(const VectorHandler& X, const VectorHandler& XP);
 
     VariableSubMatrixHandler& 

@@ -129,7 +129,7 @@ Collision::Intersect(void)
 }
 
 void
-Collision::ClearAndSetTangents(void)
+Collision::ClearAndSetTangents()
 {
     tangents.clear();
     const StructNode* pStructNode1(dynamic_cast<const StructNode *>(pNode1));
@@ -154,6 +154,11 @@ Collision::ClearAndSetTangents(void)
             }
         } else {
             tangents.push_back(Zero3);
+        }
+    }
+    if (tangents.size() == contacts.size()) {
+        for (int i = 0; i < tangents.size(); i++) {
+            contacts[i].tangent = tangents[i];
         }
     }
 }
@@ -542,6 +547,15 @@ CollisionWorld::SetValue(DataManager *pDM,
     SimulationEntity::Hints *ph)
 {
     NO_OP;
+}
+
+void
+CollisionWorld::AfterPredict(VectorHandler& X, VectorHandler& XP)
+{
+    for (std::map<FCL::ObjectPair, Collision*>::const_iterator it = objectpair_collision_map.begin();
+        it != objectpair_collision_map.end(); it++) {
+        it->second->ClearAndSetTangents();
+    }
 }
 
 void
