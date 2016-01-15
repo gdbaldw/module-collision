@@ -200,17 +200,14 @@ Collision::AssMat(FullSubMatrixHandler& WM, doublereal dCoef, Contact& contact)
     /* Impact */
     const Vec3 Rf1(R1 * contact.f1);
     const Vec3 Rf2(R2 * contact.f2);
-    const Vec3 V(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(Rf2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(Rf1));
     Vec3 normal = pNode2->GetXCurr() + Rf2 - pNode1->GetXCurr() - Rf1;
     const doublereal depth = normal.Norm();
-    const doublereal V_Norm = V.Norm();
     if (std::numeric_limits<doublereal>::epsilon() < depth) {
         normal /= depth;
-    } else if (std::numeric_limits<doublereal>::epsilon() < V_Norm) {
-        normal = V / V_Norm;
     } else {
         return;
     }
+    const Vec3 V(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(Rf2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(Rf1));
     const doublereal Vn_Norm = V.Dot(normal);
     ConstitutiveLaw1DOwner::Update(depth, Vn_Norm);
     doublereal Fn_Norm = GetF() / contacts.size();
@@ -326,17 +323,14 @@ Collision::AssVec(SubVectorHandler& WorkVec, doublereal dCoef, Contact& contact)
     /* Impact */
     const Vec3 Rf1(R1 * contact.f1);
     const Vec3 Rf2(R2 * contact.f2);
-    const Vec3 V(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(Rf2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(Rf1));
     Vec3 normal = pNode2->GetXCurr() + Rf2 - pNode1->GetXCurr() - Rf1;
     const doublereal depth = normal.Norm();
-    const doublereal V_Norm = V.Norm();
     if (std::numeric_limits<doublereal>::epsilon() < depth) {
         normal /= depth;
-    } else if (std::numeric_limits<doublereal>::epsilon() < V_Norm) {
-        normal = V / V_Norm;
     } else {
         return;
     }
+    const Vec3 V(pNode2->GetVCurr() + (pStructNode2->GetWCurr()).Cross(Rf2) - pNode1->GetVCurr() - (pStructNode1->GetWCurr()).Cross(Rf1));
     const doublereal Vn_Norm = V.Dot(normal);
     ConstitutiveLaw1DOwner::Update(depth, Vn_Norm);
     contact.Fn_Norm = GetF() / contacts.size();

@@ -7,7 +7,7 @@ void
 Intersect(const fcl::Sphere* s1, const fcl::Transform3f& tf1, const fcl::Sphere* s2, const fcl::Transform3f& tf2, Vec3f_pairs& Rf_pairs)
 {
     const fcl::Vec3f normal(tf2.getTranslation() - tf1.getTranslation());
-    if (normal.length() <= s1->radius + s2->radius) {
+    if (normal.length() < s1->radius + s2->radius) {
         Rf_pairs.push_back(std::make_pair(tf1.getTranslation() + normal * (s1->radius / normal.length()), tf2.getTranslation() - normal * (s2->radius / normal.length())));
     }
 }
@@ -17,8 +17,8 @@ Intersect(const fcl::Sphere* s1, const fcl::Transform3f& tf1, const fcl::Plane* 
 {
     const fcl::Plane new_s2 = fcl::transform(*s2, tf2);
     const fcl::FCL_REAL signed_dist = new_s2.signedDistance(tf1.getTranslation());
-    if (std::abs(signed_dist) <= s1->radius) {
-       Rf_pairs.push_back(std::make_pair(tf1.getTranslation() - new_s2.n * s1->radius, tf1.getTranslation() - new_s2.n * signed_dist)); 
+    if (std::abs(signed_dist) < s1->radius) {
+       Rf_pairs.push_back(std::make_pair(tf1.getTranslation() - new_s2.n * s1->radius, tf1.getTranslation() - new_s2.n * signed_dist));
     }
 }
 
